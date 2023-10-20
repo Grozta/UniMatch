@@ -1,0 +1,11 @@
+# arguments for dataset
+dataset: flare22
+nclass: 13
+crop_size: 256
+data_root: /home/grozta/Desktop/DataSets/flare22
+
+# arguments for training
+epochs: 500
+batch_size: 2 # per GPU x 1 GPU
+lr: 0.01
+conf_thresh: 0.95
