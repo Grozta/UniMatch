@@ -275,6 +275,21 @@ def prepeocessing(case_identifier,data_dict, output_dir,overwrite_existing):
             print("Exception in", case_identifier, ":")
             print(e)
             raise e
+        
+def collect_preproced_dataset_info(processed_data_root, save_datainfo_json_name):
+    dataset_info = load_json(save_datainfo_json_name)
+    for item_name,item_lists in dataset_info.items():
+        for case_identifier,data_dict in item_lists.items():
+            if item_name != "unlabeled":
+                center_dir_name = "image_labeled"
+            else:
+                center_dir_name = "image_unLabel"
+            data_dict["precessed_image_npz"] = os.path.join(processed_data_root,center_dir_name,case_identifier+".npz")
+            data_dict["precessed_image_pkl"] = os.path.join(processed_data_root,center_dir_name,case_identifier+".pkl")
+            if not isfile(data_dict["precessed_image_npz"]) and isfile(data_dict["precessed_image_pkl"]):
+                print(f"{case_identifier} was wrong!")
+    save_json(dataset_info, save_datainfo_json_name)
+
 
 def main():
     parser = argparse.ArgumentParser()
@@ -315,6 +330,9 @@ def main():
     p.starmap_async(prepeocessing, list_of_args)
     p.close()
     p.join()
+    
+    collect_preproced_dataset_info(args.preprocessing_out_dir, args.dataset_info)
+
     
 if __name__ == "__main__":
     main()
