@@ -8,17 +8,20 @@ from scipy import ndimage
 def random_rot_flip(img, mask):
     k = np.random.randint(0, 4)
     img = np.rot90(img, k)
-    mask = np.rot90(mask, k)
+    if mask is not None:
+        mask = np.rot90(mask, k)
     axis = np.random.randint(0, 2)
     img = np.flip(img, axis=axis).copy()
-    mask = np.flip(mask, axis=axis).copy()
+    if mask is not None:
+        mask = np.flip(mask, axis=axis).copy()
     return img, mask
 
 
 def random_rotate(img, mask):
     angle = np.random.randint(-20, 20)
     img = ndimage.rotate(img, angle, order=0, reshape=False)
-    mask = ndimage.rotate(mask, angle, order=0, reshape=False)
+    if mask is not None:
+        mask = ndimage.rotate(mask, angle, order=0, reshape=False)
     return img, mask
 
 

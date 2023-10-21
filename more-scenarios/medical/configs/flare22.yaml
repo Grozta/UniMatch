@@ -1,11 +1,19 @@
+# preprocessing 
+dataset_info_path: dataset/flare/dataset_info.json # for preprocessed data description
+
 # arguments for dataset
-dataset: flare22
-nclass: 13
+dataset_output_size: [96,192,192]
+data_window_level: [-500,500]
+
+# net
+nclass: 14
 crop_size: 256
-data_root: /home/grozta/Desktop/DataSets/flare22
 
 # arguments for training
 epochs: 500
 batch_size: 2 # per GPU x 1 GPU
 lr: 0.01
 conf_thresh: 0.95
+
+#out_put_dir
+save_path: exp/flare22/unimatch_3D/unet/ # for log

@@ -3,9 +3,19 @@ import json
 import glob
 import pickle
 from typing import List
+import yaml
 
 def maybe_mkdir_p(directory: str) -> None:
     os.makedirs(directory, exist_ok=True)
+
+def load_yaml(file: str):
+    with open(file, encoding='utf-8') as f:  
+        a = yaml.safe_load(f)
+    return a
+
+def save_yaml(file,data):
+    with open(file, 'w', encoding='utf-8') as f:
+        yaml.dump(data=data, stream=f, allow_unicode=True)
 
 def load_json(file: str):
     with open(file, 'r') as f:
