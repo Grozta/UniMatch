@@ -12,13 +12,13 @@ import torch.nn.functional as F
 from torch.optim import SGD
 from torch.utils.data import DataLoader
 from torch.utils.tensorboard import SummaryWriter
-import yaml
 
-from dataset.acdc import ACDCDataset
+from dataset.dataset_3D import Dataset_3D
 from model.unet import UNet
 from util.classes import CLASSES
 from util.utils import AverageMeter, count_params, init_log, DiceLoss
 from util.dist_helper import setup_distributed
+from util.tools import load_yaml
 
 
 parser = argparse.ArgumentParser(description='Revisiting Weak-to-Strong Consistency in Semi-Supervised Semantic Segmentation')
@@ -30,7 +30,7 @@ parser.add_argument('--port', default=None, type=int)
 def main():
     args = parser.parse_args()
 
-    cfg = yaml.load(open(args.config, "r"), Loader=yaml.Loader)
+    cfg = load_yaml(args.config)
 
     logger = init_log('global', logging.INFO)
     logger.propagate = 0
@@ -41,9 +41,9 @@ def main():
         all_args = {**cfg, **vars(args), 'ngpus': world_size}
         logger.info('{}\n'.format(pprint.pformat(all_args)))
         
-        writer = SummaryWriter(args.save_path)
+        writer = SummaryWriter(cfg["save_path"])
         
-        os.makedirs(args.save_path, exist_ok=True)
+        os.makedirs(cfg["save_path"], exist_ok=True)
 
     cudnn.enabled = True
     cudnn.benchmark = True
@@ -62,9 +62,9 @@ def main():
 
     criterion_ce = nn.CrossEntropyLoss()
     criterion_dice = DiceLoss(n_classes=cfg['nclass'])
-    
-    trainset = ACDCDataset(cfg['dataset'], cfg['data_root'], 'train_l', cfg['crop_size'], args.labeled_id_path)
-    valset = ACDCDataset(cfg['dataset'], cfg['data_root'], 'val')
+
+    trainset = Dataset_3D('train_l',cfg)
+    valset = Dataset_3D('val',cfg)
 
     trainsampler = torch.utils.data.distributed.DistributedSampler(trainset)
     trainloader = DataLoader(trainset, batch_size=cfg['batch_size'],
@@ -78,8 +78,8 @@ def main():
     previous_best = 0.0
     epoch = -1
     
-    if os.path.exists(os.path.join(args.save_path, 'latest.pth')):
-        checkpoint = torch.load(os.path.join(args.save_path, 'latest.pth'))
+    if os.path.exists(os.path.join(cfg["save_path"], 'latest.pth')):
+        checkpoint = torch.load(os.path.join(cfg["save_path"], 'latest.pth'))
         model.load_state_dict(checkpoint['model'])
         optimizer.load_state_dict(checkpoint['optimizer'])
         epoch = checkpoint['epoch']

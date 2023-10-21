@@ -30,8 +30,8 @@ class Dataset_3D(Dataset):
 
 
     def __getitem__(self, item):
-        id = self.ids[item]
-        sample = load_pickle(id)
+        id_name = self.ids[item]
+        sample = np.load(id_name)['data']
         img = sample[0]
         if len(sample)>1:
             mask = sample[1]
@@ -52,7 +52,8 @@ class Dataset_3D(Dataset):
 
         x, y, z = img.shape
         img = zoom(img, (self.size[0] / x, self.size[1] / y,self.size[2] / z), order=0)
-        mask = zoom(mask, (self.size[0] / x, self.size[1] / y,self.size[2] / z), order=0)
+        if  mask is not None:
+            mask = zoom(mask, (self.size[0] / x, self.size[1] / y,self.size[2] / z), order=0)
 
         if self.mode == 'train_l':
             return torch.from_numpy(img).unsqueeze(0).float(), torch.from_numpy(np.array(mask)).long()

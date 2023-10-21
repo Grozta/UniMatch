@@ -336,3 +336,4 @@ def main():
     
 if __name__ == "__main__":
     main()
+    #collect_preproced_dataset_info("/home/grozta/Desktop/Laboratory/semi-supervised/UniMatch/more-scenarios/medical/dataset/flare/preprocessing_out_dir","dataset/flare/dataset_info.json")
