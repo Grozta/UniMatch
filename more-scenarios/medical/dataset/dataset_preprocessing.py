@@ -251,7 +251,6 @@ def prepeocessing(case_identifier,data_dict, output_dir,overwrite_existing):
                 or not os.path.isfile(os.path.join(output_dir, "%s.pkl" % case_identifier))):
         try:  
             transpose_forward = [0, 1, 2]
-            transpose_backward = [0, 1, 2]
             # 非零值裁切
             data, seg, properties = load_case_from_list_of_files(data_dict["image_path"], seg)
             data, seg, properties = ImageCropper.crop(data, properties, seg)
@@ -324,7 +323,7 @@ def main():
     for _,item_lists in dataset_json.items():
         for case_identifier,data_dict in item_lists.items():
             list_of_args.append((case_identifier,data_dict,args.preprocessing_out_dir, args.overwrite))
-    #prepeocessing(*(list_of_args[60]))
+    #prepeocessing(*(list_of_args[1]))
     print("Number of processers: ", mp.cpu_count())   
     p = Pool(args.tf)
     p.starmap_async(prepeocessing, list_of_args)

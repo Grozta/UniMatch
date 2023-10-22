@@ -14,9 +14,10 @@ from torch.utils.data import DataLoader
 from torch.utils.tensorboard import SummaryWriter
 
 from dataset.dataset_3D import Dataset_3D
-from model.unet import UNet
+from model.unet_3D import UNet_3D
 from util.classes import CLASSES
-from util.utils import AverageMeter, count_params, init_log, DiceLoss
+from util.utils import AverageMeter, count_params, init_log
+from monai.losses.dice import DiceLoss
 from util.dist_helper import setup_distributed
 from util.tools import load_yaml
 
@@ -48,7 +49,7 @@ def main():
     cudnn.enabled = True
     cudnn.benchmark = True
 
-    model = UNet(in_chns=1, class_num=cfg['nclass'])
+    model = UNet_3D(in_chns=1, class_num=cfg['nclass'])
     if rank == 0:
         logger.info('Total params: {:.1f}M\n'.format(count_params(model)))
 
@@ -61,7 +62,7 @@ def main():
                                                       output_device=local_rank, find_unused_parameters=False)
 
     criterion_ce = nn.CrossEntropyLoss()
-    criterion_dice = DiceLoss(n_classes=cfg['nclass'])
+    criterion_dice = DiceLoss(to_onehot_y=True,softmax=True)
 
     trainset = Dataset_3D('train_l',cfg)
     valset = Dataset_3D('val',cfg)
@@ -104,7 +105,7 @@ def main():
 
             pred = model(img)
 
-            loss = (criterion_ce(pred, mask) + criterion_dice(pred.softmax(dim=1), mask.unsqueeze(1).float())) / 2.0
+            loss = (criterion_ce(pred, mask) + criterion_dice(pred, mask.unsqueeze(1))) / 2.0
             
             torch.distributed.barrier()
 

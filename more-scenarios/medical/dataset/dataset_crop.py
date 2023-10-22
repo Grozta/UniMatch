@@ -66,7 +66,7 @@ def load_case_from_list_of_files(data_files, seg_file=None):
     return data_npy.astype(np.float32), seg_npy, properties
 
 
-def crop_to_nonzero(data, seg=None, nonzero_label=-1):
+def crop_to_nonzero(data, seg=None, nonzero_label=0):
     """
 
     :param data:
@@ -124,7 +124,7 @@ class ImageCropper(object):
     @staticmethod
     def crop(data, properties, seg=None):
         shape_before = data.shape
-        data, seg, bbox = crop_to_nonzero(data, seg, nonzero_label=-1)
+        data, seg, bbox = crop_to_nonzero(data, seg)
         shape_after = data.shape
         print("before crop:", shape_before, "after crop:", shape_after, "spacing:",
               np.array(properties["original_spacing"]), "\n")
