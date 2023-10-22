@@ -309,7 +309,8 @@ def main():
     if args.verify_dataset_integrity:
         #verify_dataset_integrity(join(nnUNet_raw_data, task_name))
         pass
-    
+    args.dataset_info = os.path.abspath(args.dataset_info)
+
     dataset_json = load_json(args.dataset_info)
     maybe_mkdir_p(args.preprocessing_out_dir)
 
@@ -317,7 +318,7 @@ def main():
         shutil.rmtree(args.preprocessing_out_dir)
         maybe_mkdir_p(args.preprocessing_out_dir)
 
-    
+    args.preprocessing_out_dir = os.path.abspath(args.preprocessing_out_dir)
     list_of_args = []
     
     for _,item_lists in dataset_json.items():
@@ -335,4 +336,4 @@ def main():
     
 if __name__ == "__main__":
     main()
-    #collect_preproced_dataset_info("/home/grozta/Desktop/Laboratory/semi-supervised/UniMatch/more-scenarios/medical/dataset/flare/preprocessing_out_dir","dataset/flare/dataset_info.json")
+    #collect_preproced_dataset_info("/home/grozta/Desktop/Laboratory/semi-supervised/UniMatch/more-scenarios/medical/dataset/flare/preprocessing_out_dir","/home/grozta/Desktop/Laboratory/semi-supervised/UniMatch/more-scenarios/medical/dataset/flare/dataset_info.json")
