@@ -2,13 +2,30 @@
 dataset_info_path: dataset/flare/dataset_info.json # for preprocessed data description
 
 # arguments for dataset
-dataset_output_size: [96,192,192]
+num_workers: 8
+dataset_output_size: [48,256,256]
 data_window_level: [-500,500]
 
 # net
 nclass: 14
-crop_size: 256
+class_name_list: [
+liver Dice,
+right kidney Dice,
+spleen Dice,
+pancreas Dice,
+aorta Dice,
+inferior vena cava Dice,
+right adrenal gland Dice,
+left adrenal gland Dice,
+gallbladder Dice,
+esophagus Dice,
+stomach Dice,
+duodenum Dice,
+left kidney Dice
+]
 
+feature_chns: [16, 32, 64, 128, 256]
+dropout: [0.05, 0.1, 0.2, 0.3, 0.5]
 # arguments for training
 epochs: 500
 batch_size: 2 # per GPU x 1 GPU
@@ -16,4 +33,4 @@ lr: 0.01
 conf_thresh: 0.95
 
 #out_put_dir
-save_path: exp/flare22/unimatch_3D/unet/ # for log
+save_path: exp/flare22/unimatch_3D/unet/ # # where is dir path for saving tensorboard log and module weight files

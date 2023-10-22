@@ -64,10 +64,10 @@ class UpBlock(nn.Module):
     """Upssampling followed by ConvBlock"""
 
     def __init__(self, in_channels1, in_channels2, out_channels, dropout_p,
-                 bilinear=True):
+                 trilinear=True):
         super(UpBlock, self).__init__()
-        self.bilinear = bilinear
-        if bilinear:
+        self.trilinear = trilinear
+        if trilinear:
             self.conv1x1 = nn.Conv3d(in_channels1, in_channels2, kernel_size=1)
             self.up = nn.Upsample(
                 scale_factor=2, mode='trilinear', align_corners=True)
@@ -77,7 +77,7 @@ class UpBlock(nn.Module):
         self.conv = ConvBlock(in_channels2 * 2, out_channels, dropout_p)
 
     def forward(self, x1, x2):
-        if self.bilinear:
+        if self.trilinear:
             x1 = self.conv1x1(x1)
         x1 = self.up(x1)
         x = torch.cat([x2, x1], dim=1)
@@ -91,7 +91,7 @@ class Encoder(nn.Module):
         self.in_chns = self.params['in_chns']
         self.ft_chns = self.params['feature_chns']
         self.n_class = self.params['class_num']
-        self.bilinear = self.params['bilinear']
+        self.trilinear = self.params['trilinear']
         self.dropout = self.params['dropout']
         assert (len(self.ft_chns) == 5)
         self.in_conv = ConvBlock(
@@ -121,7 +121,7 @@ class Decoder(nn.Module):
         self.in_chns = self.params['in_chns']
         self.ft_chns = self.params['feature_chns']
         self.n_class = self.params['class_num']
-        self.bilinear = self.params['bilinear']
+        self.trilinear = self.params['trilinear']
         assert (len(self.ft_chns) == 5)
 
         self.up1 = UpBlock(
@@ -152,15 +152,15 @@ class Decoder(nn.Module):
 
 
 class UNet_3D(nn.Module):
-    def __init__(self, in_chns, class_num):
+    def __init__(self, in_chns,class_num,feature_chns,dropout,acti_func="relu",trilinear=False):
         super(UNet_3D, self).__init__()
 
         params = {'in_chns': in_chns,
-                  'feature_chns': [16, 32, 64, 128, 256],
-                  'dropout': [0.05, 0.1, 0.2, 0.3, 0.5],
+                  'feature_chns': feature_chns,
+                  'dropout': dropout,
                   'class_num': class_num,
-                  'bilinear': False,
-                  'acti_func': 'relu'}
+                  'trilinear': trilinear,
+                  'acti_func': acti_func}
 
         self.encoder = Encoder(params)
         self.decoder = Decoder(params)

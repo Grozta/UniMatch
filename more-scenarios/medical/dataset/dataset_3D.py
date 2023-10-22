@@ -43,7 +43,9 @@ class Dataset_3D(Dataset):
         img = (img - np.mean(img)) / (np.std(img) + 1e-5)
 
         if self.mode == 'val':
-            return torch.from_numpy(img).float(), torch.from_numpy(mask).long()
+            x, y, z = img.shape
+            img = zoom(img, (self.size[0] / x, self.size[1] / y,self.size[2] / z), order=0)
+            return torch.from_numpy(img).unsqueeze(0).float(), torch.from_numpy(mask).long()
 
         if random.random() > 0.5:
             img, mask = random_rot_flip(img, mask)
