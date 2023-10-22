@@ -27,11 +27,12 @@ parser.add_argument('--restart_train', required=False, default=True, action="sto
 def main():
     args = parser.parse_args()
     cfg = load_yaml(args.config)
-    if args.restart_train and isdir(cfg["save_path"]):
-        shutil.rmtree(cfg["save_path"])
-        maybe_mkdir_p(cfg["save_path"])
+    output_dir = os.path.abspath(join(cfg["output_dir_root"],cfg["project_name"],cfg["train_name"]))
+    if args.restart_train and isdir(output_dir):
+        shutil.rmtree(output_dir)
+    maybe_mkdir_p(output_dir)
 
-    log_dir = join(cfg["save_path"],"log")
+    log_dir = join(output_dir,"log")
     maybe_mkdir_p(log_dir)
     logger = Logger(join(log_dir,"log.txt")).logger
     all_args = {**cfg, **vars(args)}
@@ -66,8 +67,8 @@ def main():
     previous_best = 0.0
     epoch = -1
 
-    if os.path.exists(os.path.join(cfg["save_path"], 'latest.pth')):
-        checkpoint = torch.load(os.path.join(cfg["save_path"], 'latest.pth'))
+    if os.path.exists(os.path.join(output_dir, 'latest.pth')):
+        checkpoint = torch.load(os.path.join(output_dir, 'latest.pth'))
         model.load_state_dict(checkpoint['model'])
         optimizer.load_state_dict(checkpoint['optimizer'])
         epoch = checkpoint['epoch']
@@ -146,9 +147,9 @@ def main():
             'epoch': epoch,
             'previous_best': previous_best,
         }
-        torch.save(checkpoint, os.path.join(cfg["save_path"], 'latest.pth'))
+        torch.save(checkpoint, os.path.join(output_dir, 'latest.pth'))
         if is_best:
-            torch.save(checkpoint, os.path.join(cfg["save_path"], 'best.pth'))
+            torch.save(checkpoint, os.path.join(output_dir, 'best.pth'))
 
 
 if __name__ == '__main__':

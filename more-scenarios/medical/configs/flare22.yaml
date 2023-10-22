@@ -1,8 +1,12 @@
+# output args
+output_dir_root: exp
+project_name: unimatch_unet_3d
+train_name: flare22
 # preprocessing 
 dataset_info_path: dataset/flare/dataset_info.json # for preprocessed data description
 
 # arguments for dataset
-num_workers: 8
+num_workers: 2
 dataset_output_size: [48,256,256]
 data_window_level: [-500,500]
 
@@ -31,6 +35,3 @@ epochs: 500
 batch_size: 2 # per GPU x 1 GPU
 lr: 0.01
 conf_thresh: 0.95
-
-#out_put_dir
-save_path: exp/flare22/unimatch_3D/unet/ # # where is dir path for saving tensorboard log and module weight files
