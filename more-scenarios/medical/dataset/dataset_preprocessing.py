@@ -326,7 +326,7 @@ def main():
             list_of_args.append((case_identifier,data_dict,args.preprocessing_out_dir, args.overwrite))
     #prepeocessing(*(list_of_args[1]))
     print("Number of processers: ", mp.cpu_count())   
-    p = Pool(args.tf)
+    p = Pool(mp.cpu_count())
     p.starmap_async(prepeocessing, list_of_args)
     p.close()
     p.join()
