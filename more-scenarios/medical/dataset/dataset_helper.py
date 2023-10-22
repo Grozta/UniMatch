@@ -45,4 +45,4 @@ def gen_dataset_relative_files(root,imageTr,labelTr,unlabeled,save_file_dirs_pat
 
 
 if __name__ == '__main__':
-    gen_dataset_relative_files("/home/grozta/Desktop/DataSets/flare22","imagesTr","labelsTr","unlabeled","/home/grozta/Desktop/Laboratory/semi-supervised/UniMatch/more-scenarios/medical/dataset/flare")
+    gen_dataset_relative_files("/home/fly/datasets/flare22","imagesTr","labelsTr","unlabeled","/home/fly/datasets/flare22")

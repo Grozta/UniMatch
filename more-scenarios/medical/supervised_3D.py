@@ -27,6 +27,7 @@ parser.add_argument('--restart_train', required=False, default=True, action="sto
 def main():
     args = parser.parse_args()
     cfg = load_yaml(args.config)
+    cfg["restart_train"]= args.restart_train
     output_dir = os.path.abspath(join(cfg["output_dir_root"],cfg["project_name"],cfg["train_name"]))
     if args.restart_train and isdir(output_dir):
         shutil.rmtree(output_dir)
@@ -35,8 +36,7 @@ def main():
     log_dir = join(output_dir,"log")
     maybe_mkdir_p(log_dir)
     logger = Logger(join(log_dir,"log.txt")).logger
-    all_args = {**cfg, **vars(args)}
-    logger.info('{}\n'.format(pprint.pformat(all_args)))
+    logger.info('{}\n'.format(pprint.pformat(cfg)))
     
     writer = SummaryWriter(log_dir=log_dir)
 

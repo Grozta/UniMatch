@@ -7,7 +7,7 @@ dataset_info_path: dataset/flare/dataset_info.json # for preprocessed data descr
 
 # arguments for dataset
 num_workers: 2
-dataset_output_size: [48,256,256]
+dataset_output_size: [48,192,192]
 data_window_level: [-500,500]
 
 # net

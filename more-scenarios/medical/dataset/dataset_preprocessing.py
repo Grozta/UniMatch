@@ -292,9 +292,9 @@ def collect_preproced_dataset_info(processed_data_root, save_datainfo_json_name)
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("-di", "--dataset_info", type=str, default="dataset/flare/dataset_info.json",
+    parser.add_argument("-di", "--dataset_info", type=str, default="/home/fly/datasets/flare22/dataset_info.json",
                         help="this is a original file-path about dataset-information")
-    parser.add_argument("-pod", "--preprocessing_out_dir", type=str, default="dataset/flare/preprocessing_out_dir",
+    parser.add_argument("-pod", "--preprocessing_out_dir", type=str, default="/home/fly/datasets/flare22/preprocessing_out_dir",
                         help="this is a original file-path about dataset-information")
     parser.add_argument("-tf", type=int, required=False, default=8,
                         help="Number of processes used for preprocessing the full resolution data of the 2D U-Net and "
@@ -325,8 +325,10 @@ def main():
         for case_identifier,data_dict in item_lists.items():
             list_of_args.append((case_identifier,data_dict,args.preprocessing_out_dir, args.overwrite))
     #prepeocessing(*(list_of_args[1]))
-    print("Number of processers: ", mp.cpu_count())   
-    p = Pool(mp.cpu_count())
+    print("Number of processers: ", mp.cpu_count())  
+    if args.tf > mp.cpu_count():
+        args.tf = mp.cpu_count()
+    p = Pool(args.tf)
     p.starmap_async(prepeocessing, list_of_args)
     p.close()
     p.join()
