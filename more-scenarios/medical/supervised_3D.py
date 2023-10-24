@@ -73,8 +73,14 @@ def main():
         optimizer.load_state_dict(checkpoint['optimizer'])
         epoch = checkpoint['epoch']
         previous_best = checkpoint['previous_best']
-        
         logger.info('************ Load from checkpoint at epoch %i\n' % epoch)
+
+    elif os.path.exists(cfg["pretrained_model_path"]):
+        checkpoint = torch.load(cfg["pretrained_model_path"])
+        model.load_state_dict(checkpoint['model'])
+        logger.info('************ Load from pretrained model')
+    else:
+        logger.info('************ start oringinal model')
 
     for epoch in range(epoch, cfg['epochs']):
         logger.info('===========> Epoch: {:}, LR: {:.5f}, Previous best: {:.2f}'.format(
