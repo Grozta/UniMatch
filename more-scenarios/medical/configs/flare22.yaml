@@ -1,13 +1,13 @@
 # output args
 output_dir_root: exp
 project_name: unimatch_unet_3d
-train_name: flare22
+train_name: flare22_lab
 # preprocessing 
-dataset_info_path: dataset/flare/dataset_info.json # for preprocessed data description
+dataset_info_path: configs/dataset_info.json # for preprocessed data description
 
 # arguments for dataset
 num_workers: 2
-dataset_output_size: [48,192,192]
+dataset_output_size: [96,160,160]
 data_window_level: [-500,500]
 
 # net
