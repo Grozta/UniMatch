@@ -1,109 +1,112 @@
+import abc
+import torch
+import random
 import shutil
-import SimpleITK as sitk
-import nibabel as nib
 import numpy as np
 from multiprocessing import Pool
-from collections import OrderedDict
 from util.tools import *
-
-def create_nonzero_mask(data):
-    from scipy.ndimage import binary_fill_holes
-    assert len(data.shape) == 4 or len(data.shape) == 3, "data must have shape (C, X, Y, Z) or shape (C, X, Y)"
-    nonzero_mask = np.zeros(data.shape[1:], dtype=bool)
-    for c in range(data.shape[0]):
-        this_mask = data[c] != 0
-        nonzero_mask = nonzero_mask | this_mask
-    nonzero_mask = binary_fill_holes(nonzero_mask)
-    return nonzero_mask
+from .dataset_functional import random_contrast, random_brightness_multiplicative, random_gamma, \
+    load_case_from_list_of_files, crop_to_nonzero, get_case_identifier,random_gaussian_noise,random_gaussian_blur
 
 
-def get_bbox_from_mask(mask, outside_value=0):
-    mask_voxel_coords = np.where(mask != outside_value)
-    minzidx = int(np.min(mask_voxel_coords[0]))
-    maxzidx = int(np.max(mask_voxel_coords[0])) + 1
-    minxidx = int(np.min(mask_voxel_coords[1]))
-    maxxidx = int(np.max(mask_voxel_coords[1])) + 1
-    minyidx = int(np.min(mask_voxel_coords[2]))
-    maxyidx = int(np.max(mask_voxel_coords[2])) + 1
-    return [[minzidx, maxzidx], [minxidx, maxxidx], [minyidx, maxyidx]]
+class AbstractTransform(object):
+    __metaclass__ = abc.ABCMeta
 
+    @abc.abstractmethod
+    def __call__(self, **data_dict):
+        raise NotImplementedError("Abstract, so implement")
 
-def crop_to_bbox(image, bbox):
-    assert len(image.shape) == 3, "only supports 3d images"
-    resizer = (slice(bbox[0][0], bbox[0][1]), slice(bbox[1][0], bbox[1][1]), slice(bbox[2][0], bbox[2][1]))
-    return image[resizer]
+    def __repr__(self):
+        ret_str = str(type(self).__name__) + "( " + ", ".join(
+            [key + " = " + repr(val) for key, val in self.__dict__.items()]) + " )"
 
+        return ret_str
 
-def get_case_identifier(case):
-    case_identifier = case[0].split("/")[-1].split(".nii.gz")[0][:-5]
-    return case_identifier
+class ColorJitter(AbstractTransform):
+    """Randomly change the brightness, contrast, and gamma.
+    Args:
 
-
-def get_case_identifier_from_npz(case):
-    case_identifier = case.split("/")[-1][:-4]
-    return case_identifier
-
-
-def load_case_from_list_of_files(data_files, seg_file=None):
-    properties = OrderedDict()
-    data_itk = sitk.ReadImage(data_files)
-
-    properties["original_size_of_raw_data"] = np.array(data_itk.GetSize())[[2, 1, 0]]
-    properties["original_spacing"] = np.array(data_itk.GetSpacing())[[2, 1, 0]]
-    properties["list_of_data_files"] = data_files
-    properties["seg_file"] = seg_file
-
-    properties["itk_origin"] = data_itk.GetOrigin()
-    properties["itk_spacing"] = data_itk.GetSpacing()
-    properties["itk_direction"] = data_itk.GetDirection()
-
-    data_npy = np.expand_dims(sitk.GetArrayFromImage(data_itk), 0)
-    if seg_file is not None:
-        seg_itk = sitk.ReadImage(seg_file)
-        seg_npy = sitk.GetArrayFromImage(seg_itk)[None].astype(np.float32)
-    else:
-        seg_npy = None
-    return data_npy.astype(np.float32), seg_npy, properties
-
-
-def crop_to_nonzero(data, seg=None, nonzero_label=0):
     """
+    def __init__(self, brightness=(0.8, 1.2), contrast=(0.7, 1.3),
+                 gamma=(0.5, 1.5), p=0.5):
+        self.brightness = self._check_input(brightness, 'brightness')
+        self.contrast = self._check_input(contrast, 'contrast')
+        self.gamma = self._check_input(gamma, 'gamma')
+        self.p = p
 
-    :param data:
-    :param seg:
-    :param nonzero_label: this will be written into the segmentation map
-    :return:
+    def _check_input(self, parameters, name):
+        if parameters is None:
+            parameters = (0.5, 2)
+        elif len(parameters) != 2:
+            raise ValueError(f'the length of {name} parameter must be two!')
+
+        return parameters
+
+    @staticmethod
+    def get_params(parameters):
+        if np.random.random() < 0.5 and parameters[0] < 1:
+            para = np.random.uniform(parameters[0], 1)
+        else:
+            para = np.random.uniform(max(parameters[0], 1), parameters[1])
+
+        return para
+
+    def __call__(self, sample):
+        if random.random() >= self.p:
+            return sample
+        if isinstance(sample, dict):
+            image, label = sample['image'], sample['label']
+        else:
+            image, label = sample, None
+        fn_idx = torch.randperm(3)
+        for fn_id in fn_idx:
+            if fn_id == 0:
+                image = random_contrast(image, contrast_range=self.contrast, preserve_range=True, p=1.0)
+            elif fn_id == 1:
+                image = random_brightness_multiplicative(image, multiplier_range=self.brightness, p=1.0)
+            elif fn_id == 2:
+                image = random_gamma(image, gamma_range=self.gamma, p=1.0)
+
+        if isinstance(sample, dict):
+            return {'image': image, 'label': label}
+        else:
+            return image
+
+    def __repr__(self):
+        format_string = self.__class__.__name__ + '('
+        format_string += 'brightness={0}'.format(self.brightness)
+        format_string += ', contrast={0}'.format(self.contrast)
+        format_string += ', gamma={0}'.format(self.gamma)
+
+        return format_string
+    
+class NoiseJitter(AbstractTransform):
+    """Randomly change the gaussian noise and blur.
+    Args:
+
     """
-    nonzero_mask = create_nonzero_mask(data)
-    bbox = get_bbox_from_mask(nonzero_mask, 0)
+    def __init__(self, noise_sigma=(0, 0.2), blur_sigma=(0.5, 1.0), p=0.5):
+        self.noise_sigma = noise_sigma
+        self.blur_sigma = blur_sigma
+        self.p = p
 
-    cropped_data = []
-    for c in range(data.shape[0]):
-        cropped = crop_to_bbox(data[c], bbox)
-        cropped_data.append(cropped[None])
-    data = np.vstack(cropped_data)
+    def __call__(self, sample):
+        if random.random() >= self.p:
+            return sample
+        if isinstance(sample, dict):
+            image, label = sample['image'], sample['label']
+        else:
+            image, label = sample, None
 
-    if seg is not None:
-        cropped_seg = []
-        for c in range(seg.shape[0]):
-            cropped = crop_to_bbox(seg[c], bbox)
-            cropped_seg.append(cropped[None])
-        seg = np.vstack(cropped_seg)
+        if np.random.random() < 0.5:
+            image = random_gaussian_noise(image, self.noise_sigma, p=1.0)
+        else:
+            image = random_gaussian_blur(image, self.blur_sigma, p=1.0)
 
-    nonzero_mask = crop_to_bbox(nonzero_mask, bbox)[None]
-    if seg is not None:
-        seg[(seg == 0) & (nonzero_mask == 0)] = nonzero_label
-    else:
-        nonzero_mask = nonzero_mask.astype(int)
-        nonzero_mask[nonzero_mask == 0] = nonzero_label
-        nonzero_mask[nonzero_mask > 0] = 0
-        # seg = nonzero_mask 对于unLabel的数据来说不需要生成label
-        seg = seg
-    return data, seg, bbox
-
-
-def get_patient_identifiers_from_cropped_files(folder):
-    return [i.split("/")[-1][:-4] for i in subfiles(folder, join=True, suffix=".npz")]
+        if isinstance(sample, dict):
+            return {'image': image, 'label': label}
+        else:
+            return image
 
 
 class ImageCropper(object):

@@ -4,6 +4,7 @@ import pprint
 import shutil
 
 import torch
+import numpy as np
 from torch import nn
 import torch.backends.cudnn as cudnn
 import torch.nn.functional as F
@@ -14,7 +15,6 @@ import yaml
 
 from dataset.dataset_3D import Dataset_3D
 from model.unet_3D import UNet_3D
-from util.classes import CLASSES
 from util.utils import AverageMeter, count_params, Logger, DiceLoss
 from util.tools import *
 
@@ -70,8 +70,8 @@ def main():
     previous_best = 0.0
     epoch = -1
     
-    if os.path.exists(os.path.join(cfg["save_path"], 'latest.pth')):
-        checkpoint = torch.load(os.path.join(cfg["save_path"], 'latest.pth'))
+    if os.path.exists(os.path.join(output_dir, 'latest.pth')):
+        checkpoint = torch.load(os.path.join(output_dir, 'latest.pth'))
         model.load_state_dict(checkpoint['model'])
         optimizer.load_state_dict(checkpoint['optimizer'])
         epoch = checkpoint['epoch']
@@ -79,9 +79,11 @@ def main():
         logger.info('************ Load from checkpoint at epoch %i\n' % epoch)
 
     elif os.path.exists(cfg["pretrained_model_path"]):
-        checkpoint = torch.load(os.path.join(cfg["save_path"], 'latest.pth'))
+        checkpoint = torch.load(cfg["pretrained_model_path"])
         model.load_state_dict(checkpoint['model'])
         logger.info('************ Load from pretrained model')
+    else:
+        logger.info('************ start oringinal model')
     
     for epoch in range(epoch + 1, cfg['epochs']):
         logger.info('===========> Epoch: {:}, LR: {:.5f}, Previous best: {:.2f}'.format(
@@ -93,9 +95,9 @@ def main():
         total_loss_w_fp = AverageMeter()
         total_mask_ratio = AverageMeter()
 
-        # trainloader_l.sampler.set_epoch(epoch)
-        # trainloader_u.sampler.set_epoch(epoch)
-        # trainloader_u_mix.sampler.set_epoch(epoch + cfg['epochs'])
+        # trainloader_l.set_epoch(epoch)
+        # trainloader_u.set_epoch(epoch)
+        # trainloader_u_mix.set_epoch(epoch + cfg['epochs'])
         
         loader = zip(trainloader_l, trainloader_u, trainloader_u_mix)
 
@@ -121,7 +123,7 @@ def main():
                 img_u_s1_mix[cutmix_box1.unsqueeze(1).expand(img_u_s1.shape) == 1]
             img_u_s2[cutmix_box2.unsqueeze(1).expand(img_u_s2.shape) == 1] = \
                 img_u_s2_mix[cutmix_box2.unsqueeze(1).expand(img_u_s2.shape) == 1]
-
+            torch.cuda.empty_cache()
             model.train()
 
             num_lb, num_ulb = img_x.shape[0], img_u_w.shape[0]
@@ -158,7 +160,6 @@ def main():
             
             loss = (loss_x + loss_u_s1 * 0.25 + loss_u_s2 * 0.25 + loss_u_w_fp * 0.5) / 2.0
 
-            torch.distributed.barrier()
 
             optimizer.zero_grad()
             loss.backward()
@@ -188,38 +189,36 @@ def main():
                                             total_loss_w_fp.avg, total_mask_ratio.avg))
 
         model.eval()
-        dice_class = [0] * 3
-        
+        dice_val = []
         with torch.no_grad():
             for img, mask in valloader:
+                dice_class = [0] * 3
                 img, mask = img.cuda(), mask.cuda()
 
-                h, w = img.shape[-2:]
-                img = F.interpolate(img, (cfg['crop_size'], cfg['crop_size']), mode='bilinear', align_corners=False)
-
-                img = img.permute(1, 0, 2, 3)
+                d, h, w = mask.shape[-3:]
                 
                 pred = model(img)
                 
-                pred = F.interpolate(pred, (h, w), mode='bilinear', align_corners=False)
-                pred = pred.argmax(dim=1).unsqueeze(0)
+                pred = F.interpolate(pred, (d, h, w), mode='trilinear', align_corners=False)
+                pred = pred.argmax(dim=1)
 
                 for cls in range(1, cfg['nclass']):
                     inter = ((pred == cls) * (mask == cls)).sum().item()
                     union = (pred == cls).sum().item() + (mask == cls).sum().item()
                     dice_class[cls-1] += 2.0 * inter / union
+                dice_val.append(dice_class)
 
-        dice_class = [dice * 100.0 / len(valloader) for dice in dice_class]
-        mean_dice = sum(dice_class) / len(dice_class)
+        mean_dice_in_vallist = np.array(dice_val).sum(axis=0)/(cfg['nclass'] - 1)
+        mean_dice_list = mean_dice_in_vallist.tolist()
+        mean_dice = sum(mean_dice_list)/len(mean_dice_list)
         
-        for (cls_idx, dice) in enumerate(dice_class):
-            logger.info('***** Evaluation ***** >>>> Class [{:} {:}] Dice: '
-                        '{:.2f}'.format(cls_idx, CLASSES[cfg['dataset']][cls_idx], dice))
-        logger.info('***** Evaluation ***** >>>> MeanDice: {:.2f}\n'.format(mean_dice))
+        for (cls_idx, dice) in enumerate(mean_dice_list):
+            logger.info('***** Evaluation ***** >>>> Class [{:} {:}] MeanDice: '
+                        '{:.4f} '.format(cls_idx+1, cfg['class_name_list'][cls_idx], dice))
         
         writer.add_scalar('eval/MeanDice', mean_dice, epoch)
         for i, dice in enumerate(dice_class):
-            writer.add_scalar('eval/%s_dice' % (CLASSES[cfg['dataset']][i]), dice, epoch)
+            writer.add_scalar('eval/%s_dice' % (cfg['class_name_list'][i]), dice, epoch)
 
         is_best = mean_dice > previous_best
         previous_best = max(mean_dice, previous_best)
@@ -229,9 +228,9 @@ def main():
             'epoch': epoch,
             'previous_best': previous_best,
         }
-        torch.save(checkpoint, os.path.join(args.save_path, 'latest.pth'))
+        torch.save(checkpoint, os.path.join(output_dir, 'latest.pth'))
         if is_best:
-            torch.save(checkpoint, os.path.join(args.save_path, 'best.pth'))
+            torch.save(checkpoint, os.path.join(output_dir, 'best.pth'))
 
 
 if __name__ == '__main__':

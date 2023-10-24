@@ -4,7 +4,7 @@ project_name: unimatch_unet_3d
 train_name: flare22_lab_semi_supervised
 
 # preprocessing 
-dataset_info_path: configs/dataset_info.json # for preprocessed data description
+dataset_info_path: dataset/dataset_info.json # for preprocessed data description
 
 # arguments for dataset
 num_workers: 2
@@ -13,7 +13,7 @@ data_window_level: [-500,500]
 
 # arguments for training
 epochs: 500
-batch_size: 2 # per GPU x 1 GPU
+batch_size: 1
 lr: 0.01
 conf_thresh: 0.95
 

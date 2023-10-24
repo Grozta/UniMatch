@@ -1,4 +1,4 @@
-from dataset.transform import random_rot_flip, random_rotate, blur, obtain_cutmix_box
+from dataset.transform import random_rot_flip, random_rotate, obtain_cutmix_box_3d
 from copy import deepcopy
 import math
 import numpy as np
@@ -7,7 +7,7 @@ import random
 from scipy.ndimage.interpolation import zoom
 import torch
 from torch.utils.data import Dataset
-from torchvision import transforms
+from dataset.dataset_transform import ColorJitter, NoiseJitter
 from util.tools import *
 
 class Dataset_3D(Dataset):
@@ -28,8 +28,11 @@ class Dataset_3D(Dataset):
         else:
             self.ids = [data["precessed_image_npz"] for identif, data in dataset_info["val_case_list"].items()]
 
+        self.color_jitter = ColorJitter()
+        self.noise_and_blur_jitter = NoiseJitter()
 
     def __getitem__(self, item):
+        print(f"{self.mode}")
         id_name = self.ids[item]
         sample = np.load(id_name)['data']
         img = sample[0]
@@ -59,23 +62,16 @@ class Dataset_3D(Dataset):
 
         if self.mode == 'train_l':
             return torch.from_numpy(img).unsqueeze(0).float(), torch.from_numpy(np.array(mask)).long()
-
-        img = Image.fromarray((img * 500).astype(np.uint8))
+        
         img_s1, img_s2 = deepcopy(img), deepcopy(img)
-        img = torch.from_numpy(np.array(img)).unsqueeze(0).float() / 500.0
+        img = torch.from_numpy(np.array(img)).unsqueeze(0).float()
 
-        if random.random() < 0.8:
-            img_s1 = transforms.ColorJitter(0.5, 0.5, 0.5, 0.25)(img_s1)
-        img_s1 = blur(img_s1, p=0.5)
-        cutmix_box1 = obtain_cutmix_box(self.size, p=0.5)
-        img_s1 = torch.from_numpy(np.array(img_s1)).unsqueeze(0).float() / 255.0
+        img_s1, img_s2 = self.color_jitter(img_s1),self.color_jitter(img_s2)
+        img_s1, img_s2 = self.noise_and_blur_jitter(img_s1),self.noise_and_blur_jitter(img_s2)
+        img_s1, img_s2 = torch.from_numpy(np.array(img_s1)).unsqueeze(0).float(), torch.from_numpy(np.array(img_s2)).unsqueeze(0).float()
 
-        if random.random() < 0.8:
-            img_s2 = transforms.ColorJitter(0.5, 0.5, 0.5, 0.25)(img_s2)
-        img_s2 = blur(img_s2, p=0.5)
-        cutmix_box2 = obtain_cutmix_box(self.size, p=0.5)
-        img_s2 = torch.from_numpy(np.array(img_s2)).unsqueeze(0).float() / 255.0
-
+        cutmix_box1, cutmix_box2 = obtain_cutmix_box_3d(self.size, p=0.5), obtain_cutmix_box_3d(self.size, p=0.5)
+        
         return img, img_s1, img_s2, cutmix_box1, cutmix_box2
 
     def __len__(self):
