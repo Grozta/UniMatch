@@ -1,4 +1,6 @@
 from __future__ import division, print_function
+from torch.cuda.amp import autocast
+import torch.cuda.amp
 
 import numpy as np
 import torch
@@ -40,7 +42,7 @@ class ConvBlock(nn.Module):
             nn.BatchNorm3d(out_channels),
             nn.LeakyReLU()
         )
-
+    @autocast()
     def forward(self, x):
         return self.conv_conv(x)
 
@@ -55,7 +57,7 @@ class DownBlock(nn.Module):
             ConvBlock(in_channels, out_channels, dropout_p)
 
         )
-
+    @autocast()
     def forward(self, x):
         return self.maxpool_conv(x)
 
@@ -75,7 +77,7 @@ class UpBlock(nn.Module):
             self.up = nn.ConvTranspose3d(
                 in_channels1, in_channels2, kernel_size=2, stride=2)
         self.conv = ConvBlock(in_channels2 * 2, out_channels, dropout_p)
-
+    @autocast()
     def forward(self, x1, x2):
         if self.trilinear:
             x1 = self.conv1x1(x1)
@@ -104,7 +106,7 @@ class Encoder(nn.Module):
             self.ft_chns[2], self.ft_chns[3], self.dropout[3])
         self.down4 = DownBlock(
             self.ft_chns[3], self.ft_chns[4], self.dropout[4])
-
+    @autocast()
     def forward(self, x):
         x0 = self.in_conv(x)
         x1 = self.down1(x0)
@@ -135,7 +137,7 @@ class Decoder(nn.Module):
 
         self.out_conv = nn.Conv3d(self.ft_chns[0], self.n_class,
                                   kernel_size=3, padding=1)
-
+    @autocast()
     def forward(self, feature):
         x0 = feature[0]
         x1 = feature[1]
@@ -164,7 +166,7 @@ class UNet_3D(nn.Module):
 
         self.encoder = Encoder(params)
         self.decoder = Decoder(params)
-
+    @autocast()
     def forward(self, x, need_fp=False):
         feature = self.encoder(x)
         

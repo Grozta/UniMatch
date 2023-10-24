@@ -32,7 +32,6 @@ class Dataset_3D(Dataset):
         self.noise_and_blur_jitter = NoiseJitter()
 
     def __getitem__(self, item):
-        print(f"{self.mode}")
         id_name = self.ids[item]
         sample = np.load(id_name)['data']
         img = sample[0]
