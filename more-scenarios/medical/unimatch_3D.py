@@ -6,12 +6,12 @@ import shutil
 import torch
 import numpy as np
 from torch import nn
+from torch.cuda import amp
 import torch.backends.cudnn as cudnn
 import torch.nn.functional as F
 from torch.optim import SGD
 from torch.utils.data import DataLoader
 from torch.utils.tensorboard import SummaryWriter
-import yaml
 
 from dataset.dataset_3D import Dataset_3D
 from model.unet_3D import UNet_3D
@@ -31,6 +31,7 @@ def main():
     if args.restart_train and isdir(output_dir):
         shutil.rmtree(output_dir)
     maybe_mkdir_p(output_dir)
+    shutil.copy(args.config,output_dir)
 
     log_dir = join(output_dir,"log")
     maybe_mkdir_p(log_dir)
@@ -84,6 +85,8 @@ def main():
         logger.info('************ Load from pretrained model')
     else:
         logger.info('************ start oringinal model')
+
+    scaler = amp.GradScaler()
     
     for epoch in range(epoch + 1, cfg['epochs']):
         logger.info('===========> Epoch: {:}, LR: {:.5f}, Previous best: {:.2f}'.format(
@@ -112,6 +115,7 @@ def main():
             img_u_w_mix = img_u_w_mix.cuda()
             img_u_s1_mix, img_u_s2_mix = img_u_s1_mix.cuda(), img_u_s2_mix.cuda()
 
+
             with torch.no_grad():
                 model.eval()
 
@@ -123,23 +127,29 @@ def main():
                 img_u_s1_mix[cutmix_box1.unsqueeze(1).expand(img_u_s1.shape) == 1]
             img_u_s2[cutmix_box2.unsqueeze(1).expand(img_u_s2.shape) == 1] = \
                 img_u_s2_mix[cutmix_box2.unsqueeze(1).expand(img_u_s2.shape) == 1]
-            torch.cuda.empty_cache()
+            
+            if cfg["is_dynamic_empty_cache"]:
+                torch.cuda.empty_cache()
+
             model.train()
+
+            optimizer.zero_grad()
 
             num_lb, num_ulb = img_x.shape[0], img_u_w.shape[0]
 
-            preds, preds_fp = model(torch.cat((img_x, img_u_w)), True)
-            pred_x, pred_u_w = preds.split([num_lb, num_ulb])
-            pred_u_w_fp = preds_fp[num_lb:]
+            with amp.autocast(enabled=cfg["is_amp_train"]):
+                preds, preds_fp = model(torch.cat((img_x, img_u_w)), True)
+                pred_x, pred_u_w = preds.split([num_lb, num_ulb])
+                pred_u_w_fp = preds_fp[num_lb:]
 
-            pred_u_s1, pred_u_s2 = model(torch.cat((img_u_s1, img_u_s2))).chunk(2)
+                pred_u_s1, pred_u_s2 = model(torch.cat((img_u_s1, img_u_s2))).chunk(2)
 
-            pred_u_w = pred_u_w.detach()
-            conf_u_w = pred_u_w.softmax(dim=1).max(dim=1)[0]
-            mask_u_w = pred_u_w.argmax(dim=1)
+                pred_u_w = pred_u_w.detach()
+                conf_u_w = pred_u_w.softmax(dim=1).max(dim=1)[0]
+                mask_u_w = pred_u_w.argmax(dim=1)
 
-            mask_u_w_cutmixed1, conf_u_w_cutmixed1 = mask_u_w.clone(), conf_u_w.clone()
-            mask_u_w_cutmixed2, conf_u_w_cutmixed2 = mask_u_w.clone(), conf_u_w.clone()
+                mask_u_w_cutmixed1, conf_u_w_cutmixed1 = mask_u_w.clone(), conf_u_w.clone()
+                mask_u_w_cutmixed2, conf_u_w_cutmixed2 = mask_u_w.clone(), conf_u_w.clone()
 
             mask_u_w_cutmixed1[cutmix_box1 == 1] = mask_u_w_mix[cutmix_box1 == 1]
             conf_u_w_cutmixed1[cutmix_box1 == 1] = conf_u_w_mix[cutmix_box1 == 1]
@@ -160,10 +170,9 @@ def main():
             
             loss = (loss_x + loss_u_s1 * 0.25 + loss_u_s2 * 0.25 + loss_u_w_fp * 0.5) / 2.0
 
-
-            optimizer.zero_grad()
-            loss.backward()
-            optimizer.step()
+            scaler.scale(loss).backward()
+            scaler.step(optimizer)
+            scaler.update()
 
             total_loss.update(loss.item())
             total_loss_x.update(loss_x.item())
@@ -187,6 +196,9 @@ def main():
                 logger.info('Iters: {:}, Total loss: {:.3f}, Loss x: {:.3f}, Loss s: {:.3f}, Loss w_fp: {:.3f}, Mask ratio: '
                             '{:.3f}'.format(i, total_loss.avg, total_loss_x.avg, total_loss_s.avg, 
                                             total_loss_w_fp.avg, total_mask_ratio.avg))
+                
+        if cfg["is_dynamic_empty_cache"]:
+            torch.cuda.empty_cache()
 
         model.eval()
         dice_val = []

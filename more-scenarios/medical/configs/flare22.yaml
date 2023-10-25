@@ -1,7 +1,7 @@
 # output args
 output_dir_root: exp
-project_name: unimatch_unet_3d
-train_name: flare22_lab_supervised
+project_name: unimatch_unet
+train_name: home_01
 
 # preprocessing 
 dataset_info_path: dataset/dataset_info.json # for preprocessed data description
@@ -15,12 +15,12 @@ data_window_level: [-500,500]
 is_dynamic_empty_cache: true
 is_amp_train: true
 epochs: 2000
-batch_size: 2
+batch_size: 1
 lr: 0.01
 conf_thresh: 0.95
 
 # train status
-pretrained_model_path: exp/unimatch_unet_3d/flare22_lab/best.pth
+pretrained_model_path: exp/supervised_unet/lab_01/best.pth
 
 # net
 nclass: 14

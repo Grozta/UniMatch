@@ -1,5 +1,4 @@
 import argparse
-import logging
 import os
 import pprint
 import shutil
@@ -58,6 +57,7 @@ def main():
     cudnn.benchmark = True
     model = UNet_3D(in_chns=1, class_num=cfg['nclass'],feature_chns = cfg['feature_chns'],dropout=cfg['dropout'])
     logger.info('Total params: {:.1f}M\n'.format(count_params(model)))
+    optimizer = SGD(model.parameters(), cfg['lr'], momentum=0.99, weight_decay=0.0001)
     model.cuda()
 
     if os.path.exists(os.path.join(output_dir, 'latest.pth')):
@@ -76,7 +76,6 @@ def main():
         logger.info('************ start oringinal model')
 
     scaler = amp.GradScaler()
-    optimizer = SGD(model.parameters(), cfg['lr'], momentum=0.99, weight_decay=0.0001)
 
     criterion_ce = nn.CrossEntropyLoss()
     criterion_dice = DiceLoss(to_onehot_y=True,softmax=True)
