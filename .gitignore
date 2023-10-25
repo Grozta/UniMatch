@@ -3,3 +3,4 @@ more-scenarios/medical/exp/
 .vscode/
 **/__pycache__
 more-scenarios/medical/dataset/ACDC/
+more-scenarios/medical/dataset/dataset_info.json
