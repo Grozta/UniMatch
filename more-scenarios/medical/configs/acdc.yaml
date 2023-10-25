@@ -2,7 +2,7 @@
 dataset: acdc
 nclass: 4
 crop_size: 256
-data_root: /home/grozta/Desktop/DataSets/ACDC/data
+data_root: dataset/ACDC/
 
 # arguments for training
 epochs: 300

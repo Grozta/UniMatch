@@ -16,7 +16,6 @@ from dataset.acdc import ACDCDataset
 from model.unet import UNet
 from util.classes import CLASSES
 from util.utils import AverageMeter, count_params, init_log, DiceLoss
-from util.dist_helper import setup_distributed
 
 
 parser = argparse.ArgumentParser(description='Revisiting Weak-to-Strong Consistency in Semi-Supervised Semantic Segmentation')
@@ -24,8 +23,6 @@ parser.add_argument('--config', type=str, required=True)
 parser.add_argument('--labeled-id-path', type=str, required=True)
 parser.add_argument('--unlabeled-id-path', type=str, required=True)
 parser.add_argument('--save-path', type=str, required=True)
-parser.add_argument('--local_rank', default=0, type=int)
-parser.add_argument('--port', default=None, type=int)
 
 
 def main():
@@ -36,31 +33,23 @@ def main():
     logger = init_log('global', logging.INFO)
     logger.propagate = 0
 
-    rank, world_size = setup_distributed(port=args.port)
-
-    if rank == 0:
-        all_args = {**cfg, **vars(args), 'ngpus': world_size}
-        logger.info('{}\n'.format(pprint.pformat(all_args)))
-        
-        writer = SummaryWriter(args.save_path)
-        
-        os.makedirs(args.save_path, exist_ok=True)
+    logger.info('{}\n'.format(pprint.pformat(cfg)))
+    
+    writer = SummaryWriter(args.save_path)
+    
+    os.makedirs(args.save_path, exist_ok=True)
     
     cudnn.enabled = True
     cudnn.benchmark = True
 
     model = UNet(in_chns=1, class_num=cfg['nclass'])    
-    if rank == 0:
-        logger.info('Total params: {:.1f}M\n'.format(count_params(model)))
+    logger.info('Total params: {:.1f}M\n'.format(count_params(model)))
         
     optimizer = SGD(model.parameters(), cfg['lr'], momentum=0.9, weight_decay=0.0001)
 
-    local_rank = int(os.environ["LOCAL_RANK"])
     model = torch.nn.SyncBatchNorm.convert_sync_batchnorm(model)
     model.cuda()
 
-    model = torch.nn.parallel.DistributedDataParallel(model, device_ids=[local_rank], broadcast_buffers=False,
-                                                      output_device=local_rank, find_unused_parameters=False)
 
     criterion_ce = nn.CrossEntropyLoss()
     criterion_dice = DiceLoss(n_classes=cfg['nclass'])
@@ -71,18 +60,18 @@ def main():
                              cfg['crop_size'], args.labeled_id_path, nsample=len(trainset_u.ids))
     valset = ACDCDataset(cfg['dataset'], cfg['data_root'], 'val')
 
-    trainsampler_l = torch.utils.data.distributed.DistributedSampler(trainset_l)
+
     trainloader_l = DataLoader(trainset_l, batch_size=cfg['batch_size'],
-                               pin_memory=True, num_workers=1, drop_last=True, sampler=trainsampler_l)
-    trainsampler_u = torch.utils.data.distributed.DistributedSampler(trainset_u)
+                               pin_memory=True, num_workers=1, drop_last=True)
+
     trainloader_u = DataLoader(trainset_u, batch_size=cfg['batch_size'],
-                               pin_memory=True, num_workers=1, drop_last=True, sampler=trainsampler_u)
-    trainsampler_u_mix = torch.utils.data.distributed.DistributedSampler(trainset_u)
+                               pin_memory=True, num_workers=1, drop_last=True)
+
     trainloader_u_mix = DataLoader(trainset_u, batch_size=cfg['batch_size'],
-                                   pin_memory=True, num_workers=1, drop_last=True, sampler=trainsampler_u_mix)
-    valsampler = torch.utils.data.distributed.DistributedSampler(valset)
+                                   pin_memory=True, num_workers=1, drop_last=True)
+
     valloader = DataLoader(valset, batch_size=1, pin_memory=True, num_workers=1,
-                           drop_last=False, sampler=valsampler)
+                           drop_last=False)
 
     total_iters = len(trainloader_u) * cfg['epochs']
     previous_best = 0.0
@@ -95,12 +84,11 @@ def main():
         epoch = checkpoint['epoch']
         previous_best = checkpoint['previous_best']
         
-        if rank == 0:
-            logger.info('************ Load from checkpoint at epoch %i\n' % epoch)
+
+        logger.info('************ Load from checkpoint at epoch %i\n' % epoch)
     
     for epoch in range(epoch + 1, cfg['epochs']):
-        if rank == 0:
-            logger.info('===========> Epoch: {:}, LR: {:.5f}, Previous best: {:.2f}'.format(
+        logger.info('===========> Epoch: {:}, LR: {:.5f}, Previous best: {:.2f}'.format(
                 epoch, optimizer.param_groups[0]['lr'], previous_best))
 
         total_loss = AverageMeter()
@@ -109,9 +97,6 @@ def main():
         total_loss_w_fp = AverageMeter()
         total_mask_ratio = AverageMeter()
 
-        trainloader_l.sampler.set_epoch(epoch)
-        trainloader_u.sampler.set_epoch(epoch)
-        trainloader_u_mix.sampler.set_epoch(epoch + cfg['epochs'])
         
         loader = zip(trainloader_l, trainloader_u, trainloader_u_mix)
 
@@ -174,8 +159,6 @@ def main():
             
             loss = (loss_x + loss_u_s1 * 0.25 + loss_u_s2 * 0.25 + loss_u_w_fp * 0.5) / 2.0
 
-            torch.distributed.barrier()
-
             optimizer.zero_grad()
             loss.backward()
             optimizer.step()
@@ -192,14 +175,13 @@ def main():
             lr = cfg['lr'] * (1 - iters / total_iters) ** 0.9
             optimizer.param_groups[0]["lr"] = lr
             
-            if rank == 0:
-                writer.add_scalar('train/loss_all', loss.item(), iters)
-                writer.add_scalar('train/loss_x', loss_x.item(), iters)
-                writer.add_scalar('train/loss_s', (loss_u_s1.item() + loss_u_s2.item()) / 2.0, iters)
-                writer.add_scalar('train/loss_w_fp', loss_u_w_fp.item(), iters)
-                writer.add_scalar('train/mask_ratio', mask_ratio, iters)
+            writer.add_scalar('train/loss_all', loss.item(), iters)
+            writer.add_scalar('train/loss_x', loss_x.item(), iters)
+            writer.add_scalar('train/loss_s', (loss_u_s1.item() + loss_u_s2.item()) / 2.0, iters)
+            writer.add_scalar('train/loss_w_fp', loss_u_w_fp.item(), iters)
+            writer.add_scalar('train/mask_ratio', mask_ratio, iters)
             
-            if (i % (len(trainloader_u) // 8) == 0) and (rank == 0):
+            if (i % (len(trainloader_u) // 8) == 0) :
                 logger.info('Iters: {:}, Total loss: {:.3f}, Loss x: {:.3f}, Loss s: {:.3f}, Loss w_fp: {:.3f}, Mask ratio: '
                             '{:.3f}'.format(i, total_loss.avg, total_loss_x.avg, total_loss_s.avg, 
                                             total_loss_w_fp.avg, total_mask_ratio.avg))
@@ -229,28 +211,28 @@ def main():
         dice_class = [dice * 100.0 / len(valloader) for dice in dice_class]
         mean_dice = sum(dice_class) / len(dice_class)
         
-        if rank == 0:
-            for (cls_idx, dice) in enumerate(dice_class):
-                logger.info('***** Evaluation ***** >>>> Class [{:} {:}] Dice: '
-                            '{:.2f}'.format(cls_idx, CLASSES[cfg['dataset']][cls_idx], dice))
-            logger.info('***** Evaluation ***** >>>> MeanDice: {:.2f}\n'.format(mean_dice))
-            
-            writer.add_scalar('eval/MeanDice', mean_dice, epoch)
-            for i, dice in enumerate(dice_class):
-                writer.add_scalar('eval/%s_dice' % (CLASSES[cfg['dataset']][i]), dice, epoch)
+
+        for (cls_idx, dice) in enumerate(dice_class):
+            logger.info('***** Evaluation ***** >>>> Class [{:} {:}] Dice: '
+                        '{:.2f}'.format(cls_idx, CLASSES[cfg['dataset']][cls_idx], dice))
+        logger.info('***** Evaluation ***** >>>> MeanDice: {:.2f}\n'.format(mean_dice))
+        
+        writer.add_scalar('eval/MeanDice', mean_dice, epoch)
+        for i, dice in enumerate(dice_class):
+            writer.add_scalar('eval/%s_dice' % (CLASSES[cfg['dataset']][i]), dice, epoch)
 
         is_best = mean_dice > previous_best
         previous_best = max(mean_dice, previous_best)
-        if rank == 0:
-            checkpoint = {
-                'model': model.state_dict(),
-                'optimizer': optimizer.state_dict(),
-                'epoch': epoch,
-                'previous_best': previous_best,
-            }
-            torch.save(checkpoint, os.path.join(args.save_path, 'latest.pth'))
-            if is_best:
-                torch.save(checkpoint, os.path.join(args.save_path, 'best.pth'))
+
+        checkpoint = {
+            'model': model.state_dict(),
+            'optimizer': optimizer.state_dict(),
+            'epoch': epoch,
+            'previous_best': previous_best,
+        }
+        torch.save(checkpoint, os.path.join(args.save_path, 'latest.pth'))
+        if is_best:
+            torch.save(checkpoint, os.path.join(args.save_path, 'best.pth'))
 
 
 if __name__ == '__main__':
