@@ -7,6 +7,7 @@ import shutil
 import torch
 import numpy as np
 from torch import nn
+from torch.cuda import amp
 import torch.backends.cudnn as cudnn
 import torch.nn.functional as F
 from torch.optim import SGD
@@ -27,32 +28,19 @@ parser.add_argument('--restart_train', required=False, default=True, action="sto
 def main():
     args = parser.parse_args()
     cfg = load_yaml(args.config)
+    cfg["restart_train"]= args.restart_train
     output_dir = os.path.abspath(join(cfg["output_dir_root"],cfg["project_name"],cfg["train_name"]))
     if args.restart_train and isdir(output_dir):
         shutil.rmtree(output_dir)
     maybe_mkdir_p(output_dir)
+    shutil.copy(args.config,output_dir)
 
     log_dir = join(output_dir,"log")
     maybe_mkdir_p(log_dir)
     logger = Logger(join(log_dir,"log.txt")).logger
-    all_args = {**cfg, **vars(args)}
-    logger.info('{}\n'.format(pprint.pformat(all_args)))
+    logger.info('{}\n'.format(pprint.pformat(cfg)))
     
     writer = SummaryWriter(log_dir=log_dir)
-
-    cudnn.enabled = True
-    cudnn.benchmark = True
-
-    model = UNet_3D(in_chns=1, class_num=cfg['nclass'],feature_chns = cfg['feature_chns'],dropout=cfg['dropout'])
-  
-    logger.info('Total params: {:.1f}M\n'.format(count_params(model)))
-
-    optimizer = SGD(model.parameters(), cfg['lr'], momentum=0.9, weight_decay=0.0001)
-
-    model.cuda()
-
-    criterion_ce = nn.CrossEntropyLoss()
-    criterion_dice = DiceLoss(to_onehot_y=True,softmax=True)
 
     trainset = Dataset_3D('train_l',cfg)
     valset = Dataset_3D('val',cfg)
@@ -66,6 +54,11 @@ def main():
     total_iters = len(trainloader) * cfg['epochs']
     previous_best = 0.0
     epoch = -1
+    cudnn.enabled = True
+    cudnn.benchmark = True
+    model = UNet_3D(in_chns=1, class_num=cfg['nclass'],feature_chns = cfg['feature_chns'],dropout=cfg['dropout'])
+    logger.info('Total params: {:.1f}M\n'.format(count_params(model)))
+    model.cuda()
 
     if os.path.exists(os.path.join(output_dir, 'latest.pth')):
         checkpoint = torch.load(os.path.join(output_dir, 'latest.pth'))
@@ -73,8 +66,20 @@ def main():
         optimizer.load_state_dict(checkpoint['optimizer'])
         epoch = checkpoint['epoch']
         previous_best = checkpoint['previous_best']
-        
         logger.info('************ Load from checkpoint at epoch %i\n' % epoch)
+
+    elif os.path.exists(cfg["pretrained_model_path"]):
+        checkpoint = torch.load(cfg["pretrained_model_path"])
+        model.load_state_dict(checkpoint['model'])
+        logger.info('************ Load from pretrained model')
+    else:
+        logger.info('************ start oringinal model')
+
+    scaler = amp.GradScaler()
+    optimizer = SGD(model.parameters(), cfg['lr'], momentum=0.99, weight_decay=0.0001)
+
+    criterion_ce = nn.CrossEntropyLoss()
+    criterion_dice = DiceLoss(to_onehot_y=True,softmax=True)
 
     for epoch in range(epoch, cfg['epochs']):
         logger.info('===========> Epoch: {:}, LR: {:.5f}, Previous best: {:.2f}'.format(
@@ -85,15 +90,19 @@ def main():
 
         for i, (img, mask) in enumerate(trainloader):
 
-            img, mask = img.cuda(), mask.cuda()
-
-            pred = model(img)
-
-            loss = (criterion_ce(pred, mask) + criterion_dice(pred, mask.unsqueeze(1))) / 2.0
-
+            img = img.cuda()
             optimizer.zero_grad()
-            loss.backward()
-            optimizer.step()
+            with amp.autocast(enabled=cfg["is_amp_train"]):
+                pred = model(img)
+                if cfg["is_amp_train"]:
+                    mask= mask.cuda()
+                loss = (criterion_ce(pred, mask) + criterion_dice(pred, mask.unsqueeze(1))) / 2.0
+             # torch.nn.utils.clip_grad_norm_(parameters=self.model.parameters(), max_norm=10, norm_type=2)
+            scaler.scale(loss).backward()
+            # 将梯度值缩放回原尺度后，优化器进行一步优化
+            scaler.step(optimizer)
+            # 更新scalar的缩放信息
+            scaler.update()
 
             total_loss.update(loss.item())
 
@@ -105,6 +114,10 @@ def main():
             
             if (i % (max(2, len(trainloader) // 8)) == 0):
                 logger.info('Iters: {:}, Total loss: {:.3f}'.format(i, total_loss.avg))
+
+        if cfg["is_dynamic_empty_cache"]:
+            del img, mask, pred
+            torch.cuda.empty_cache()
 
         model.eval()
         dice_val = []
@@ -125,6 +138,10 @@ def main():
                     union = (pred == cls).sum().item() + (mask == cls).sum().item()
                     dice_class[cls-1] += 2.0 * inter / union
                 dice_val.append(dice_class)
+
+        if cfg["is_dynamic_empty_cache"]:
+            del img, mask, pred
+            torch.cuda.empty_cache()
          
         mean_dice_in_vallist = np.array(dice_val).sum(axis=0)/(cfg['nclass'] - 1)
         mean_dice_list = mean_dice_in_vallist.tolist()
@@ -150,6 +167,8 @@ def main():
         torch.save(checkpoint, os.path.join(output_dir, 'latest.pth'))
         if is_best:
             torch.save(checkpoint, os.path.join(output_dir, 'best.pth'))
+
+        
 
 
 if __name__ == '__main__':
