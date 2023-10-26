@@ -2,7 +2,7 @@ import argparse
 import os
 import pprint
 import shutil
-
+from tqdm import tqdm
 import torch
 import numpy as np
 from torch import nn
@@ -22,13 +22,13 @@ from util.tools import *
 
 parser = argparse.ArgumentParser(description='Revisiting Weak-to-Strong Consistency in Semi-Supervised Semantic Segmentation')
 parser.add_argument('--config', type=str,default="configs/flare22.yaml")
-parser.add_argument('--restart_train', required=False, default=True, action="store_true",)
+parser.add_argument('--save_path', type=str,default="exp/supervised_unet/home_01")
+parser.add_argument('--restart_train', required=False, default=False, action="store_true",)
 
 def main():
     args = parser.parse_args()
     cfg = load_yaml(args.config)
-    cfg["restart_train"]= args.restart_train
-    output_dir = os.path.abspath(join(cfg["output_dir_root"],cfg["project_name"],cfg["train_name"]))
+    output_dir = os.path.abspath(args.save_path)
     if args.restart_train and isdir(output_dir):
         shutil.rmtree(output_dir)
     maybe_mkdir_p(output_dir)
@@ -37,6 +37,7 @@ def main():
     log_dir = join(output_dir,"log")
     maybe_mkdir_p(log_dir)
     logger = Logger(join(log_dir,"log.txt")).logger
+    logger.info(f"train start! output_dir:{output_dir}")
     logger.info('{}\n'.format(pprint.pformat(cfg)))
     
     writer = SummaryWriter(log_dir=log_dir)
@@ -87,14 +88,15 @@ def main():
         model.train()
         total_loss = AverageMeter()
 
-        for i, (img, mask) in enumerate(trainloader):
+        train_loop = tqdm(enumerate(trainloader), total =len(trainloader),leave= True)
+        train_loop.set_description(f'Train[{epoch+2}/{cfg["epochs"]}]')
+        for i, (img, mask) in train_loop:
 
             img = img.cuda()
             optimizer.zero_grad()
             with amp.autocast(enabled=cfg["is_amp_train"]):
                 pred = model(img)
-                if cfg["is_amp_train"]:
-                    mask= mask.cuda()
+                mask= mask.cuda()
                 loss = (criterion_ce(pred, mask) + criterion_dice(pred, mask.unsqueeze(1))) / 2.0
              # torch.nn.utils.clip_grad_norm_(parameters=self.model.parameters(), max_norm=10, norm_type=2)
             scaler.scale(loss).backward()
@@ -113,6 +115,8 @@ def main():
             
             if (i % (max(2, len(trainloader) // 8)) == 0):
                 logger.info('Iters: {:}, Total loss: {:.3f}'.format(i, total_loss.avg))
+            
+            train_loop.set_postfix(loss = total_loss.avg)
 
         if cfg["is_dynamic_empty_cache"]:
             del img, mask, pred
@@ -121,7 +125,9 @@ def main():
         model.eval()
         dice_val = []
         with torch.no_grad():
-            for img, mask in valloader:
+            val_loop = tqdm(enumerate(valloader), total =len(valloader),leave= False)
+            val_loop.set_description(f'Val [{epoch}/{cfg["epochs"]}]')
+            for i, (img, mask) in val_loop:
                 dice_class = [0] * (cfg['nclass'] - 1)
                 img, mask = img.cuda(), mask.cuda()
 
@@ -137,6 +143,7 @@ def main():
                     union = (pred == cls).sum().item() + (mask == cls).sum().item()
                     dice_class[cls-1] += 2.0 * inter / union
                 dice_val.append(dice_class)
+                train_loop.set_postfix(avg_dice = sum(dice_class)/len(dice_class))
 
         if cfg["is_dynamic_empty_cache"]:
             del img, mask, pred
@@ -167,6 +174,9 @@ def main():
         if is_best:
             torch.save(checkpoint, os.path.join(output_dir, 'best.pth'))
 
+
+        
+        
         
 
 

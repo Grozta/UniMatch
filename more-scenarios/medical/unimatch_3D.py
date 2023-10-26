@@ -3,8 +3,6 @@ import os
 import pprint
 import shutil
 from tqdm import tqdm
-import time
-
 import torch
 import numpy as np
 from torch import nn
@@ -23,13 +21,14 @@ from util.tools import *
 
 parser = argparse.ArgumentParser(description='Revisiting Weak-to-Strong Consistency in Semi-Supervised Semantic Segmentation')
 parser.add_argument('--config', type=str,default="configs/flare22.yaml")
-parser.add_argument('--restart_train', required=False, default=True, action="store_true",)
+parser.add_argument('--save_path', type=str,default="exp/unimatch_unet/home_01")
+parser.add_argument('--restart_train', required=False, default=False, action="store_true",)
 
 def main():
     args = parser.parse_args()
     cfg = load_yaml(args.config)
     cfg["restart_train"]= args.restart_train
-    output_dir = os.path.abspath(join(cfg["output_dir_root"],cfg["project_name"],cfg["train_name"]))
+    output_dir = os.path.abspath(args.save_path)
     if args.restart_train and isdir(output_dir):
         shutil.rmtree(output_dir)
     maybe_mkdir_p(output_dir)
@@ -38,6 +37,7 @@ def main():
     log_dir = join(output_dir,"log")
     maybe_mkdir_p(log_dir)
     logger = Logger(join(log_dir,"log.txt")).logger
+    logger.info(f"train start! output_dir:{output_dir}")
     logger.info('{}\n'.format(pprint.pformat(cfg)))
     
     writer = SummaryWriter(log_dir=log_dir)
@@ -105,10 +105,12 @@ def main():
         # trainloader_u_mix.set_epoch(epoch + cfg['epochs'])
         
         loader = zip(trainloader_l, trainloader_u, trainloader_u_mix)
+        train_loop = tqdm(enumerate(loader), total =len(trainloader_u),leave= True)
+        train_loop.set_description(f'Train[{epoch+2}/{cfg["epochs"]}]')
         with amp.autocast(enabled=cfg["is_amp_train"]):
             for i, ((img_x, mask_x),
                     (img_u_w, img_u_s1, img_u_s2, cutmix_box1, cutmix_box2),
-                    (img_u_w_mix, img_u_s1_mix, img_u_s2_mix, _, _)) in enumerate(loader):
+                    (img_u_w_mix, img_u_s1_mix, img_u_s2_mix, _, _)) in train_loop:
         
                 with torch.no_grad():
                     model.eval()
@@ -203,15 +205,19 @@ def main():
                     logger.info('Iters: {:}, Total loss: {:.3f}, Loss x: {:.3f}, Loss s: {:.3f}, Loss w_fp: {:.3f}, Mask ratio: '
                                 '{:.3f}'.format(i, total_loss.avg, total_loss_x.avg, total_loss_s.avg, 
                                                 total_loss_w_fp.avg, total_mask_ratio.avg))
-                    
+
+                train_loop.set_postfix(loss = total_loss.avg) 
+
             if cfg["is_dynamic_empty_cache"]:
                 torch.cuda.empty_cache()
 
             model.eval()
             dice_val = []
             with torch.no_grad():
-                for img, mask in valloader:
-                    dice_class = [0] * 3
+                val_loop = tqdm(enumerate(valloader), total =len(valloader),leave= False)
+                val_loop.set_description(f'Val [{epoch}/{cfg["epochs"]}]')
+                for img, mask in val_loop:
+                    dice_class = [0] * (cfg['nclass'] - 1)
                     img, mask = img.cuda(), mask.cuda()
 
                     d, h, w = mask.shape[-3:]
@@ -226,6 +232,11 @@ def main():
                         union = (pred == cls).sum().item() + (mask == cls).sum().item()
                         dice_class[cls-1] += 2.0 * inter / union
                     dice_val.append(dice_class)
+                    train_loop.set_postfix(avg_dice = sum(dice_class)/len(dice_class))
+            
+            if cfg["is_dynamic_empty_cache"]:
+                del img, mask, pred
+                torch.cuda.empty_cache()
 
             mean_dice_in_vallist = np.array(dice_val).sum(axis=0)/(cfg['nclass'] - 1)
             mean_dice_list = mean_dice_in_vallist.tolist()
@@ -241,6 +252,7 @@ def main():
 
             is_best = mean_dice > previous_best
             previous_best = max(mean_dice, previous_best)
+
             checkpoint = {
                 'model': model.state_dict(),
                 'optimizer': optimizer.state_dict(),
