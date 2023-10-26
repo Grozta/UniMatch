@@ -70,6 +70,7 @@ class Dataset_3D(Dataset):
         img_s1, img_s2 = torch.from_numpy(np.array(img_s1)).unsqueeze(0).float(), torch.from_numpy(np.array(img_s2)).unsqueeze(0).float()
 
         cutmix_box1, cutmix_box2 = obtain_cutmix_box_3d(self.size, p=0.5), obtain_cutmix_box_3d(self.size, p=0.5)
+        cutmix_box1, cutmix_box2 = cutmix_box1.long(), cutmix_box2.long()
         
         return img, img_s1, img_s2, cutmix_box1, cutmix_box2
 

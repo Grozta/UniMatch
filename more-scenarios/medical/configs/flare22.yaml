@@ -7,20 +7,21 @@ train_name: home_01
 dataset_info_path: dataset/dataset_info.json # for preprocessed data description
 
 # arguments for dataset
-num_workers: 10
-dataset_output_size: [96,160,160]
+num_workers: 1
+dataset_output_size: [64,144,144]
 data_window_level: [-500,500]
 
 # arguments for training
 is_dynamic_empty_cache: true
 is_amp_train: true
-epochs: 2000
+use_tqdm: true
+epochs: 1000
 batch_size: 1
 lr: 0.01
 conf_thresh: 0.95
 
 # train status
-pretrained_model_path: exp/supervised_unet/lab_01/best.pth
+pretrained_model_path: exp/supervised_unet/lab_01/best.pth0
 
 # net
 nclass: 14
@@ -40,5 +41,5 @@ duodenum Dice,
 left kidney Dice
 ]
 
-feature_chns: [32, 64, 128, 128, 256]
+feature_chns: [32, 64, 64, 128, 256]
 dropout: [0.05, 0.1, 0.2, 0.3, 0.5]
