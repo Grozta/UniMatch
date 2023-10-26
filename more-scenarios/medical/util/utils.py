@@ -122,7 +122,7 @@ class Logger(object):
     def __init__(self,filename,level='info',when='D',backCount=3,fmt='%(asctime)s|%(levelname)s: %(message)s'):
         if not isfile(filename):
             with open(filename, mode='w', encoding='utf-8') as ff:
-                print("文件创建成功！")
+                print("")
         self.logger = logging.getLogger(filename)
         format_str = logging.Formatter(fmt)#设置日志格式
         self.logger.setLevel(self.level_relations.get(level))#设置日志级别

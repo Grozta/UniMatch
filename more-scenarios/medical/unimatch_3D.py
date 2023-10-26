@@ -20,7 +20,7 @@ from util.tools import *
 
 
 parser = argparse.ArgumentParser(description='Revisiting Weak-to-Strong Consistency in Semi-Supervised Semantic Segmentation')
-parser.add_argument('--config', type=str,default="configs/flare22.yaml")
+parser.add_argument('--config', type=str,default="configs/flare22_unimatch 2.yaml")
 parser.add_argument('--save_path', type=str,default="exp/unimatch_unet/home_01")
 parser.add_argument('--restart_train', required=False, default=False, action="store_true",)
 

@@ -21,7 +21,7 @@ from util.tools import *
 
 
 parser = argparse.ArgumentParser(description='Revisiting Weak-to-Strong Consistency in Semi-Supervised Semantic Segmentation')
-parser.add_argument('--config', type=str,default="configs/flare22.yaml")
+parser.add_argument('--config', type=str,default="configs/flare22_supervised.yaml")
 parser.add_argument('--save_path', type=str,default="exp/supervised_unet/home_01")
 parser.add_argument('--restart_train', required=False, default=False, action="store_true",)
 
@@ -37,7 +37,8 @@ def main():
     log_dir = join(output_dir,"log")
     maybe_mkdir_p(log_dir)
     logger = Logger(join(log_dir,"log.txt")).logger
-    logger.info(f"train start! output_dir:{output_dir}")
+    print(f"train start!\noutput_dir:{output_dir}")
+
     logger.info('{}\n'.format(pprint.pformat(cfg)))
     
     writer = SummaryWriter(log_dir=log_dir)
