@@ -11,11 +11,12 @@ from dataset.dataset_transform import ColorJitter, NoiseJitter
 from util.tools import *
 
 class Dataset_3D(Dataset):
-    def __init__(self, mode, config, nsample=None):
+    def __init__(self, mode, config, nsample=None,Validation_all = False):
         
         self.mode = mode
         self.size =config["dataset_output_size"]
         self.window_level=config["data_window_level"]
+        self.Validation_all = Validation_all
 
         dataset_info = load_json(config["dataset_info_path"])
         if mode == 'train_l':
@@ -26,7 +27,13 @@ class Dataset_3D(Dataset):
         elif mode == 'train_u':
             self.ids = [data["precessed_image_npz"] for identif, data in dataset_info["unlabeled"].items()]
         else:
-            self.ids = [data["precessed_image_npz"] for identif, data in dataset_info["val_case_list"].items()]
+            
+            tarin_set = [data["precessed_image_npz"] for identif, data in dataset_info["train_case_list"].items()]
+            val_set = [data["precessed_image_npz"] for identif, data in dataset_info["val_case_list"].items()]
+            if Validation_all:
+                self.ids = tarin_set+val_set
+            else:
+                self.ids = val_set
 
         self.color_jitter = ColorJitter()
         self.noise_and_blur_jitter = NoiseJitter()
