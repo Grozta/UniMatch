@@ -159,7 +159,7 @@ def main():
                         '{:.4f} '.format(cls_idx+1, cfg['class_name_list'][cls_idx], dice))
         
         writer.add_scalar('eval/MeanDice', mean_dice, epoch)
-        for i, dice in enumerate(dice_class):
+        for i, dice in enumerate(mean_dice_list):
             writer.add_scalar('eval/%s_dice' % (cfg['class_name_list'][i]), dice, epoch)
 
         is_best = mean_dice > previous_best

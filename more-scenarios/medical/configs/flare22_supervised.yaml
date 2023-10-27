@@ -3,7 +3,7 @@ dataset_info_path: dataset/dataset_info.json # for preprocessed data description
 
 # arguments for dataset
 num_workers: 8
-dataset_output_size: [64,144,144]
+dataset_output_size: [64,128,128]
 data_window_level: [-500,500]
 
 # arguments for training

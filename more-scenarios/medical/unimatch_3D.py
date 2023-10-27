@@ -51,8 +51,6 @@ def main():
 
     optimizer = SGD(model.parameters(), cfg['lr'], momentum=0.9, weight_decay=0.0001)
 
-    model.cuda()
-
     criterion_ce = nn.CrossEntropyLoss()
     criterion_dice = DiceLoss(n_classes=cfg['nclass'])
     
@@ -72,6 +70,8 @@ def main():
     total_iters = len(trainloader_u) * cfg['epochs']
     previous_best = 0.0
     epoch = -1
+
+    model.cuda()
     
     if os.path.exists(os.path.join(output_dir, 'latest.pth')):
         checkpoint = torch.load(os.path.join(output_dir, 'latest.pth'))
@@ -99,14 +99,10 @@ def main():
         total_loss_s = AverageMeter()
         total_loss_w_fp = AverageMeter()
         total_mask_ratio = AverageMeter()
-
-        # trainloader_l.set_epoch(epoch)
-        # trainloader_u.set_epoch(epoch)
-        # trainloader_u_mix.set_epoch(epoch + cfg['epochs'])
         
         loader = zip(trainloader_l, trainloader_u, trainloader_u_mix)
         train_loop = tqdm(enumerate(loader), total =len(trainloader_u),leave= True)
-        train_loop.set_description(f'Train[{epoch+2}/{cfg["epochs"]}]')
+        train_loop.set_description(f'Train[{epoch}/{cfg["epochs"]}]')
         with amp.autocast(enabled=cfg["is_amp_train"]):
             for i, ((img_x, mask_x),
                     (img_u_w, img_u_s1, img_u_s2, cutmix_box1, cutmix_box2),
@@ -121,6 +117,7 @@ def main():
                     mask_u_w_mix = (pred_u_w_mix.argmax(dim=1))
                     
                     if cfg["is_dynamic_empty_cache"]:
+                        del img_u_w_mix
                         torch.cuda.empty_cache()
 
                 img_u_s1[cutmix_box1.unsqueeze(1).expand(img_u_s1.shape) == 1] = \
