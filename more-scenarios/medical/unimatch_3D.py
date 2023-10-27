@@ -61,13 +61,13 @@ def main():
     valset = Dataset_3D('val',cfg)
 
     trainloader_l = DataLoader(trainset_l, batch_size=cfg['batch_size'],
-                               pin_memory=True, num_workers=cfg['num_workers'], drop_last=True)
+                               pin_memory=True, num_workers=cfg['num_workers'], drop_last=True,shuffle=False)
     trainloader_u = DataLoader(trainset_u, batch_size=cfg['batch_size'],
-                               pin_memory=True, num_workers=cfg['num_workers'], drop_last=True)
+                               pin_memory=True, num_workers=cfg['num_workers'], drop_last=True,shuffle=False)
     trainloader_u_mix = DataLoader(trainset_u, batch_size=cfg['batch_size'],
-                                   pin_memory=True, num_workers=cfg['num_workers'], drop_last=True)
-    valloader = DataLoader(valset, batch_size=1, pin_memory=True, num_workers=cfg['num_workers'],
-                           drop_last=False)
+                                   pin_memory=True, num_workers=cfg['num_workers'], drop_last=True,shuffle=True)
+    valloader = DataLoader(valset, batch_size=1, 
+                           pin_memory=True, num_workers=cfg['num_workers'], drop_last=False,shuffle=False)
 
     total_iters = len(trainloader_u) * cfg['epochs']
     previous_best = 0.0
@@ -247,7 +247,7 @@ def main():
                             '{:.4f} '.format(cls_idx+1, cfg['class_name_list'][cls_idx], dice))
             
             writer.add_scalar('eval/MeanDice', mean_dice, epoch)
-            for i, dice in enumerate(dice_class):
+            for i, dice in enumerate(mean_dice_list):
                 writer.add_scalar('eval/%s_dice' % (cfg['class_name_list'][i]), dice, epoch)
 
             is_best = mean_dice > previous_best
