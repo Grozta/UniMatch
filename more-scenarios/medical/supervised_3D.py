@@ -142,7 +142,7 @@ def main():
                 for cls in range(1, cfg['nclass']):
                     inter = ((pred == cls) * (mask == cls)).sum().item()
                     union = (pred == cls).sum().item() + (mask == cls).sum().item()
-                    dice_class[cls-1] += 2.0 * inter / union
+                    dice_class[cls-1] = 2.0 * inter / union
                 dice_val.append(dice_class)
                 train_loop.set_postfix(avg_dice = sum(dice_class)/len(dice_class))
 

@@ -22,7 +22,7 @@ from util.tools import *
 
 parser = argparse.ArgumentParser(description='Revisiting Weak-to-Strong Consistency in Semi-Supervised Semantic Segmentation')
 parser.add_argument('--config', type=str,default="configs/flare22_val.yaml")
-parser.add_argument('--save_path', type=str,default="exp/supervised_unet/home_01/val")
+parser.add_argument('--save_path', type=str,default="exp/supervised_unet/lab_02_128/val")
 
 def main():
     args = parser.parse_args()
