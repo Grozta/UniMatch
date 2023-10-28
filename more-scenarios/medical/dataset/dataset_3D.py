@@ -17,6 +17,7 @@ class Dataset_3D(Dataset):
         self.size =config["dataset_output_size"]
         self.window_level=config["data_window_level"]
         self.Validation_all = Validation_all
+        self.use_patch = config["use_patch"]
 
         dataset_info = load_json(config["dataset_info_path"])
         if mode == 'train_l':
