@@ -67,7 +67,7 @@ def main():
     valloader = DataLoader(valset, batch_size=1, 
                            pin_memory=True, num_workers=cfg['num_workers'], drop_last=False,shuffle=False)
 
-    total_iters = len(trainloader_u) * cfg['epochs']
+    total_iters = len(trainloader_u) * cfg['epochs'] * cfg['patch_size']
     previous_best = 0.0
     epoch = -1
 
@@ -102,108 +102,110 @@ def main():
         
         loader = zip(trainloader_l, trainloader_u, trainloader_u_mix)
         train_loop = tqdm(enumerate(loader), total =len(trainloader_u),leave= True)
-        train_loop.set_description(f'Train[{+1}/{cfg["epochs"]}]')
+        train_loop.set_description(f'Train[{epoch+1}/{cfg["epochs"]}]')
         with amp.autocast(enabled=cfg["is_amp_train"]):
-            for i, ((img_x, mask_x),
+            for i, (patch_l,patch_u,patch_u_mix) in train_loop:
+
+                for j, ((img_x, mask_x),
                     (img_u_w, img_u_s1, img_u_s2, cutmix_box1, cutmix_box2),
-                    (img_u_w_mix, img_u_s1_mix, img_u_s2_mix, _, _)) in train_loop:
-        
-                with torch.no_grad():
-                    model.eval()
-                    img_u_w_mix = img_u_w_mix.cuda()
+                    (img_u_w_mix, img_u_s1_mix, img_u_s2_mix, _, _)) in enumerate(zip(patch_l,patch_u,patch_u_mix)):
+                    with torch.no_grad():
+                        model.eval()
+                        img_u_w_mix = img_u_w_mix.cuda()
+                        with amp.autocast(enabled=cfg["is_amp_train"]):
+                            pred_u_w_mix = model(img_u_w_mix).detach().cpu().float()
+                        conf_u_w_mix = (pred_u_w_mix.softmax(dim=1).max(dim=1)[0]).float()
+                        mask_u_w_mix = (pred_u_w_mix.argmax(dim=1))
+                        
+                        if cfg["is_dynamic_empty_cache"]:
+                            del img_u_w_mix
+                            torch.cuda.empty_cache()
+
+                    img_u_s1[cutmix_box1.unsqueeze(1).expand(img_u_s1.shape) == 1] = \
+                        img_u_s1_mix[cutmix_box1.unsqueeze(1).expand(img_u_s1.shape) == 1]
+                    img_u_s2[cutmix_box2.unsqueeze(1).expand(img_u_s2.shape) == 1] = \
+                        img_u_s2_mix[cutmix_box2.unsqueeze(1).expand(img_u_s2.shape) == 1]
+
+                    model.train()
+
+                    optimizer.zero_grad()
+
+                    num_lb, num_ulb = img_x.shape[0], img_u_w.shape[0]
+
+                    img_x, img_u_w = img_x.cuda(),img_u_w.cuda()
+                    img_u_s1, img_u_s2 = img_u_s1.cuda(), img_u_s2.cuda()
                     with amp.autocast(enabled=cfg["is_amp_train"]):
-                        pred_u_w_mix = model(img_u_w_mix).detach().cpu().float()
-                    conf_u_w_mix = (pred_u_w_mix.softmax(dim=1).max(dim=1)[0]).float()
-                    mask_u_w_mix = (pred_u_w_mix.argmax(dim=1))
-                    
+                        preds, preds_fp = model(torch.cat((img_x, img_u_w)), True)
+                    pred_x, pred_u_w = preds.split([num_lb, num_ulb])
+                    pred_u_w_fp = preds_fp[num_lb:]
+                    with amp.autocast(enabled=cfg["is_amp_train"]):
+                        pred_u_s1, pred_u_s2 = model(torch.cat((img_u_s1, img_u_s2))).chunk(2)
+
+                    pred_u_w = pred_u_w.detach().cpu().float()
                     if cfg["is_dynamic_empty_cache"]:
-                        del img_u_w_mix
                         torch.cuda.empty_cache()
+                    conf_u_w = (pred_u_w.softmax(dim=1).max(dim=1)[0]).float()
+                    mask_u_w = pred_u_w.argmax(dim=1)
 
-                img_u_s1[cutmix_box1.unsqueeze(1).expand(img_u_s1.shape) == 1] = \
-                    img_u_s1_mix[cutmix_box1.unsqueeze(1).expand(img_u_s1.shape) == 1]
-                img_u_s2[cutmix_box2.unsqueeze(1).expand(img_u_s2.shape) == 1] = \
-                    img_u_s2_mix[cutmix_box2.unsqueeze(1).expand(img_u_s2.shape) == 1]
+                    mask_u_w_cutmixed1, conf_u_w_cutmixed1 = mask_u_w.clone(), conf_u_w.clone()
+                    mask_u_w_cutmixed2, conf_u_w_cutmixed2 = mask_u_w.clone(), conf_u_w.clone()
 
-                model.train()
+                    mask_u_w_cutmixed1[cutmix_box1 == 1] = mask_u_w_mix[cutmix_box1 == 1]
+                    conf_u_w_cutmixed1[cutmix_box1 == 1] = conf_u_w_mix[cutmix_box1 == 1]
 
-                optimizer.zero_grad()
+                    mask_u_w_cutmixed2[cutmix_box2 == 1] = mask_u_w_mix[cutmix_box2 == 1]
+                    conf_u_w_cutmixed2[cutmix_box2 == 1] = conf_u_w_mix[cutmix_box2 == 1]
 
-                num_lb, num_ulb = img_x.shape[0], img_u_w.shape[0]
+                    mask_x = mask_x.cuda()
+                    mask_u_w_cutmixed1 = mask_u_w_cutmixed1.cuda().float()
+                    mask_u_w_cutmixed2 = mask_u_w_cutmixed2.cuda().float()
+                    mask_u_w = mask_u_w.cuda()
 
-                img_x, img_u_w = img_x.cuda(),img_u_w.cuda()
-                img_u_s1, img_u_s2 = img_u_s1.cuda(), img_u_s2.cuda()
-                with amp.autocast(enabled=cfg["is_amp_train"]):
-                    preds, preds_fp = model(torch.cat((img_x, img_u_w)), True)
-                pred_x, pred_u_w = preds.split([num_lb, num_ulb])
-                pred_u_w_fp = preds_fp[num_lb:]
-                with amp.autocast(enabled=cfg["is_amp_train"]):
-                    pred_u_s1, pred_u_s2 = model(torch.cat((img_u_s1, img_u_s2))).chunk(2)
+                    ce_loss = criterion_ce(pred_x.float(), mask_x) + 1e-8
+                    dice_loss = criterion_dice(pred_x.softmax(dim=1), mask_x.unsqueeze(1))
 
-                pred_u_w = pred_u_w.detach().cpu().float()
-                if cfg["is_dynamic_empty_cache"]:
-                    torch.cuda.empty_cache()
-                conf_u_w = (pred_u_w.softmax(dim=1).max(dim=1)[0]).float()
-                mask_u_w = pred_u_w.argmax(dim=1)
+                    loss_x = (ce_loss+dice_loss)/ 2.0
 
-                mask_u_w_cutmixed1, conf_u_w_cutmixed1 = mask_u_w.clone(), conf_u_w.clone()
-                mask_u_w_cutmixed2, conf_u_w_cutmixed2 = mask_u_w.clone(), conf_u_w.clone()
+                    loss_u_s1 = criterion_dice(pred_u_s1.softmax(dim=1), mask_u_w_cutmixed1.unsqueeze(1),
+                                            ignore=(conf_u_w_cutmixed1 < cfg['conf_thresh']))
+                    
+                    loss_u_s2 = criterion_dice(pred_u_s2.softmax(dim=1), mask_u_w_cutmixed2.unsqueeze(1),
+                                            ignore=(conf_u_w_cutmixed2 < cfg['conf_thresh']))
+                    
+                    loss_u_w_fp = criterion_dice(pred_u_w_fp.softmax(dim=1), mask_u_w.unsqueeze(1),
+                                                ignore=(conf_u_w < cfg['conf_thresh']))
+                    
+                    loss = (loss_x + loss_u_s1 * 0.25 + loss_u_s2 * 0.25 + loss_u_w_fp * 0.5) / 2.0
 
-                mask_u_w_cutmixed1[cutmix_box1 == 1] = mask_u_w_mix[cutmix_box1 == 1]
-                conf_u_w_cutmixed1[cutmix_box1 == 1] = conf_u_w_mix[cutmix_box1 == 1]
+                    scaler.scale(loss).backward()
+                    scaler.step(optimizer)
+                    scaler.update()
 
-                mask_u_w_cutmixed2[cutmix_box2 == 1] = mask_u_w_mix[cutmix_box2 == 1]
-                conf_u_w_cutmixed2[cutmix_box2 == 1] = conf_u_w_mix[cutmix_box2 == 1]
-
-                mask_x = mask_x.cuda()
-                mask_u_w_cutmixed1 = mask_u_w_cutmixed1.cuda().float()
-                mask_u_w_cutmixed2 = mask_u_w_cutmixed2.cuda().float()
-                mask_u_w = mask_u_w.cuda()
-
-                ce_loss = criterion_ce(pred_x.float(), mask_x) + 1e-8
-                dice_loss = criterion_dice(pred_x.softmax(dim=1), mask_x.unsqueeze(1))
-
-                loss_x = (ce_loss+dice_loss)/ 2.0
-
-                loss_u_s1 = criterion_dice(pred_u_s1.softmax(dim=1), mask_u_w_cutmixed1.unsqueeze(1),
-                                        ignore=(conf_u_w_cutmixed1 < cfg['conf_thresh']))
+                    total_loss.update(loss.item())
+                    total_loss_x.update(loss_x.item())
+                    total_loss_s.update((loss_u_s1.item() + loss_u_s2.item()) / 2.0)
+                    total_loss_w_fp.update(loss_u_w_fp.item())
+                    
+                    mask_ratio = (conf_u_w >= cfg['conf_thresh']).sum() / conf_u_w.numel()
+                    total_mask_ratio.update(mask_ratio.item())
+                    
+                    iters = epoch * len(trainloader_u)*len(patch_l) + len(patch_l)*i + j
+                    lr = cfg['lr'] * (1 - iters / total_iters) ** 0.9
+                    optimizer.param_groups[0]["lr"] = lr
+                    
+                    writer.add_scalar('train/loss_all', loss.item(), iters)
+                    writer.add_scalar('train/loss_x', loss_x.item(), iters)
+                    writer.add_scalar('train/loss_s', (loss_u_s1.item() + loss_u_s2.item()) / 2.0, iters)
+                    writer.add_scalar('train/loss_w_fp', loss_u_w_fp.item(), iters)
+                    writer.add_scalar('train/mask_ratio', mask_ratio, iters)
                 
-                loss_u_s2 = criterion_dice(pred_u_s2.softmax(dim=1), mask_u_w_cutmixed2.unsqueeze(1),
-                                        ignore=(conf_u_w_cutmixed2 < cfg['conf_thresh']))
-                
-                loss_u_w_fp = criterion_dice(pred_u_w_fp.softmax(dim=1), mask_u_w.unsqueeze(1),
-                                            ignore=(conf_u_w < cfg['conf_thresh']))
-                
-                loss = (loss_x + loss_u_s1 * 0.25 + loss_u_s2 * 0.25 + loss_u_w_fp * 0.5) / 2.0
+                    if (i % (len(trainloader_u) // 8) == 0):
+                        logger.info('Iters: {:}, Total loss: {:.3f}, Loss x: {:.3f}, Loss s: {:.3f}, Loss w_fp: {:.3f}, Mask ratio: '
+                                    '{:.3f}'.format(i, total_loss.avg, total_loss_x.avg, total_loss_s.avg, 
+                                                    total_loss_w_fp.avg, total_mask_ratio.avg))
 
-                scaler.scale(loss).backward()
-                scaler.step(optimizer)
-                scaler.update()
-
-                total_loss.update(loss.item())
-                total_loss_x.update(loss_x.item())
-                total_loss_s.update((loss_u_s1.item() + loss_u_s2.item()) / 2.0)
-                total_loss_w_fp.update(loss_u_w_fp.item())
-                
-                mask_ratio = (conf_u_w >= cfg['conf_thresh']).sum() / conf_u_w.numel()
-                total_mask_ratio.update(mask_ratio.item())
-                
-                iters = epoch * len(trainloader_u) + i
-                lr = cfg['lr'] * (1 - iters / total_iters) ** 0.9
-                optimizer.param_groups[0]["lr"] = lr
-                
-                writer.add_scalar('train/loss_all', loss.item(), iters)
-                writer.add_scalar('train/loss_x', loss_x.item(), iters)
-                writer.add_scalar('train/loss_s', (loss_u_s1.item() + loss_u_s2.item()) / 2.0, iters)
-                writer.add_scalar('train/loss_w_fp', loss_u_w_fp.item(), iters)
-                writer.add_scalar('train/mask_ratio', mask_ratio, iters)
-            
-                if (i % (len(trainloader_u) // 8) == 0):
-                    logger.info('Iters: {:}, Total loss: {:.3f}, Loss x: {:.3f}, Loss s: {:.3f}, Loss w_fp: {:.3f}, Mask ratio: '
-                                '{:.3f}'.format(i, total_loss.avg, total_loss_x.avg, total_loss_s.avg, 
-                                                total_loss_w_fp.avg, total_mask_ratio.avg))
-
-                train_loop.set_postfix(loss = total_loss.avg) 
+                    train_loop.set_postfix(loss = total_loss.avg, patch_id = j) 
+                    
 
             if cfg["is_dynamic_empty_cache"]:
                 torch.cuda.empty_cache()
@@ -228,6 +230,8 @@ def main():
                         inter = ((pred == cls) * (mask == cls)).sum().item()
                         union = (pred == cls).sum().item() + (mask == cls).sum().item()
                         dice_class[cls-1] += 2.0 * inter / union
+                        writer.add_scalars('val/Dice',{cfg['class_name_list'][cls-1]: dice_class[cls-1]}, i)
+                    
                     dice_val.append(dice_class)
                     train_loop.set_postfix(avg_dice = sum(dice_class)/len(dice_class))
             
@@ -238,10 +242,9 @@ def main():
             mean_dice_in_vallist = np.array(dice_val).sum(axis=0)/(cfg['nclass'] - 1)
             mean_dice_list = mean_dice_in_vallist.tolist()
             mean_dice = sum(mean_dice_list)/len(mean_dice_list)
-            
+            logger.info('***** Evaluation ***** >>>> Class')
             for (cls_idx, dice) in enumerate(mean_dice_list):
-                logger.info('***** Evaluation ***** >>>> Class [{:} {:}] MeanDice: '
-                            '{:.4f} '.format(cls_idx+1, cfg['class_name_list'][cls_idx], dice))
+                logger.info(' [{:}] MeanDice: {:.4f} '.format(cfg['class_name_list'][cls_idx], dice))
             
             writer.add_scalar('eval/MeanDice', mean_dice, epoch)
             for i, dice in enumerate(mean_dice_list):

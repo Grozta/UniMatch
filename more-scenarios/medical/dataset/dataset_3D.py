@@ -7,7 +7,7 @@ import random
 from scipy.ndimage.interpolation import zoom
 import torch
 from torch.utils.data import Dataset
-from dataset.dataset_transform import ColorJitter, NoiseJitter
+from dataset.dataset_transform import ColorJitter, NoiseJitter ,RandomCropD
 from util.tools import *
 
 class Dataset_3D(Dataset):
@@ -17,7 +17,7 @@ class Dataset_3D(Dataset):
         self.size =config["dataset_output_size"]
         self.window_level=config["data_window_level"]
         self.Validation_all = Validation_all
-        self.use_patch = config["use_patch"]
+        self.patch_size = config["patch_size"]
 
         dataset_info = load_json(config["dataset_info_path"])
         if mode == 'train_l':
@@ -38,6 +38,7 @@ class Dataset_3D(Dataset):
 
         self.color_jitter = ColorJitter()
         self.noise_and_blur_jitter = NoiseJitter()
+        self.random_crop = RandomCropD(self.size)
 
     def __getitem__(self, item):
         id_name = self.ids[item]
@@ -62,25 +63,54 @@ class Dataset_3D(Dataset):
         elif random.random() > 0.5:
             img, mask = random_rotate(img, mask)
 
-        x, y, z = img.shape
-        img = zoom(img, (self.size[0] / x, self.size[1] / y,self.size[2] / z), order=0)
-        if  mask is not None:
-            mask = zoom(mask, (self.size[0] / x, self.size[1] / y,self.size[2] / z), order=0)
+        # x, y, z = img.shape
+        # img = zoom(img, (self.size[0] / x, self.size[1] / y,self.size[2] / z), order=0)
+        # if  mask is not None:
+        #     mask = zoom(mask, (self.size[0] / x, self.size[1] / y,self.size[2] / z), order=0)
 
         if self.mode == 'train_l':
-            return torch.from_numpy(img).unsqueeze(0).float(), torch.from_numpy(np.array(mask)).long()
+            patch_list=[]
+            x, y, z = img.shape
+            img_0 = zoom(img, (self.size[0] / x, self.size[1] / y,self.size[2] / z), order=0)
+            mask_0 = zoom(mask, (self.size[0] / x, self.size[1] / y,self.size[2] / z), order=0)
+            patch_list.append((torch.from_numpy(img_0).unsqueeze(0).float(), torch.from_numpy(np.array(mask_0)).long()))    
+
+            for i in range(1,self.patch_size):
+                # 随机裁剪出patch
+                patch_item = self.random_crop({'image':img,'label':mask})
+                # 加入到patch_list中
+                patch_list.append((torch.from_numpy(patch_item['image']).unsqueeze(0).float(), torch.from_numpy(np.array(patch_item['label'])).long()))
+            return patch_list
         
         img_s1, img_s2 = deepcopy(img), deepcopy(img)
-        img = torch.from_numpy(np.array(img)).unsqueeze(0).float()
+        #img = torch.from_numpy(np.array(img)).unsqueeze(0).float()
 
         img_s1, img_s2 = self.color_jitter(img_s1),self.color_jitter(img_s2)
         img_s1, img_s2 = self.noise_and_blur_jitter(img_s1),self.noise_and_blur_jitter(img_s2)
-        img_s1, img_s2 = torch.from_numpy(np.array(img_s1)).unsqueeze(0).float(), torch.from_numpy(np.array(img_s2)).unsqueeze(0).float()
-
+        #img_s1, img_s2 = torch.from_numpy(np.array(img_s1)).unsqueeze(0).float(), torch.from_numpy(np.array(img_s2)).unsqueeze(0).float()
+        
+        patch_list=[]
+        x, y, z = img.shape
+        img_0 = zoom(img, (self.size[0] / x, self.size[1] / y,self.size[2] / z), order=0)
+        img_s1_0 = zoom(img_s1, (self.size[0] / x, self.size[1] / y,self.size[2] / z), order=0)
+        img_s2_0 = zoom(img_s2, (self.size[0] / x, self.size[1] / y,self.size[2] / z), order=0)
+        img_0 = torch.from_numpy(np.array(img_0)).unsqueeze(0).float()
+        img_s1_0, img_s2_0 = torch.from_numpy(np.array(img_s1_0)).unsqueeze(0).float(), torch.from_numpy(np.array(img_s2_0)).unsqueeze(0).float()
         cutmix_box1, cutmix_box2 = obtain_cutmix_box_3d(self.size, p=0.5), obtain_cutmix_box_3d(self.size, p=0.5)
         cutmix_box1, cutmix_box2 = cutmix_box1.long(), cutmix_box2.long()
-        
-        return img, img_s1, img_s2, cutmix_box1, cutmix_box2
+        patch_list.append((img_0,img_s1_0,img_s2_0,cutmix_box1,cutmix_box2))    
+
+        for i in range(1,self.patch_size):
+            # 随机裁剪出patch
+            patch_item_1 = self.random_crop({'image':img,'label':img_s1})
+            patch_item_2 = self.random_crop({'image':img,'label':img_s2})
+            img_0 = torch.from_numpy(np.array(patch_item_1['image'])).unsqueeze(0).float()
+            img_s1_0, img_s2_0 = torch.from_numpy(np.array(patch_item_1['label'])).unsqueeze(0).float(), torch.from_numpy(np.array(patch_item_2['label'])).unsqueeze(0).float()
+            cutmix_box1, cutmix_box2 = obtain_cutmix_box_3d(self.size, p=0.5), obtain_cutmix_box_3d(self.size, p=0.5)
+            cutmix_box1, cutmix_box2 = cutmix_box1.long(), cutmix_box2.long()
+            # 加入到patch_list中
+            patch_list.append((img_0,img_s1_0,img_s2_0,cutmix_box1,cutmix_box2))  
+        return patch_list
 
     def __len__(self):
         return len(self.ids)

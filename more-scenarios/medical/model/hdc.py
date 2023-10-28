@@ -213,7 +213,7 @@ class Encoder(nn.Module):
         x2 = self.conv2(x1)
         x2 = self.down2(x2) # 16
 
-        x3 = self.conv2(x2)
+        x3 = self.conv3(x2)
         x3 = self.down3(x3) # 8
 
         return [x0, x1, x2, x3 ]

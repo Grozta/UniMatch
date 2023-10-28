@@ -23,7 +23,7 @@ from util.tools import *
 parser = argparse.ArgumentParser(description='Revisiting Weak-to-Strong Consistency in Semi-Supervised Semantic Segmentation')
 parser.add_argument('--config', type=str,default="configs/hdc_supervised.yaml")
 parser.add_argument('--save_path', type=str,default="exp/supervised_hdc/onda_01")
-parser.add_argument('--restart_train', required=False, default=False, action="store_true",)
+parser.add_argument('--restart_train', required=False, default=True, action="store_true",)
 
 def main():
     args = parser.parse_args()
@@ -52,7 +52,7 @@ def main():
                            drop_last=False)
 
     iters = 0
-    total_iters = len(trainloader) * cfg['epochs']
+    total_iters = len(trainloader) * cfg['epochs'] * cfg['patch_size']
     previous_best = 0.0
     epoch = -1
     cudnn.enabled = True
@@ -89,35 +89,37 @@ def main():
         model.train()
         total_loss = AverageMeter()
 
-        train_loop = tqdm(enumerate(trainloader), total =len(trainloader),leave= True)
-        train_loop.set_description(f'Train[{epoch+1}/{cfg["epochs"]}]')
-        for i, (img, mask) in train_loop:
+        train_loop_batch = tqdm(enumerate(trainloader), total =len(trainloader),leave= True)
+        train_loop_batch.set_description(f'Train[{epoch+1}/{cfg["epochs"]}]')
 
-            img = img.cuda()
-            optimizer.zero_grad()
-            with amp.autocast(enabled=cfg["is_amp_train"]):
-                pred = model(img)
-                mask= mask.cuda()
-                loss = (criterion_ce(pred, mask) + criterion_dice(pred, mask.unsqueeze(1))) / 2.0
-             # torch.nn.utils.clip_grad_norm_(parameters=self.model.parameters(), max_norm=10, norm_type=2)
-            scaler.scale(loss).backward()
-            # 将梯度值缩放回原尺度后，优化器进行一步优化
-            scaler.step(optimizer)
-            # 更新scalar的缩放信息
-            scaler.update()
-
-            total_loss.update(loss.item())
-
-            iters = epoch * len(trainloader) + i
-            lr = cfg['lr'] * (1 - iters / total_iters) ** 0.9
-            optimizer.param_groups[0]["lr"] = lr
-
-            writer.add_scalar('train/loss_all', loss.item(), iters)
+        for i, patch in train_loop_batch:
             
-            if (i % (max(2, len(trainloader) // 8)) == 0):
-                logger.info('Iters: {:}, Total loss: {:.3f}'.format(i, total_loss.avg))
-            
-            train_loop.set_postfix(loss = total_loss.avg)
+            for j, (img, mask) in enumerate(patch):
+                img = img.cuda()
+                optimizer.zero_grad()
+                with amp.autocast(enabled=cfg["is_amp_train"]):
+                    pred = model(img)
+                    mask= mask.cuda()
+                    loss = (criterion_ce(pred, mask) + criterion_dice(pred, mask.unsqueeze(1))) / 2.0
+                    # torch.nn.utils.clip_grad_norm_(parameters=self.model.parameters(), max_norm=10, norm_type=2)
+                scaler.scale(loss).backward()
+                # 将梯度值缩放回原尺度后，优化器进行一步优化
+                scaler.step(optimizer)
+                # 更新scalar的缩放信息
+                scaler.update()
+
+                total_loss.update(loss.item())
+
+                iters = epoch * len(trainloader)*len(patch) + len(patch)*i + j
+                lr = cfg['lr'] * (1 - iters / total_iters) ** 0.9
+                optimizer.param_groups[0]["lr"] = lr
+
+                writer.add_scalar('train/loss_all', loss.item(), iters)
+                
+                if (i % (max(2, len(trainloader) // 8)) == 0):
+                    logger.info('Iters: {:}, Total loss: {:.3f}'.format(i, total_loss.avg))
+                
+                train_loop_batch.set_postfix(loss = total_loss.avg, patch_id = j)
 
         if cfg["is_dynamic_empty_cache"]:
             del img, mask, pred
@@ -142,9 +144,11 @@ def main():
                 for cls in range(1, cfg['nclass']):
                     inter = ((pred == cls) * (mask == cls)).sum().item()
                     union = (pred == cls).sum().item() + (mask == cls).sum().item()
-                    dice_class[cls-1] += 2.0 * inter / union
+                    dice_class[cls-1] = 2.0 * inter / union
+                    writer.add_scalars('val/Dice',{cfg['class_name_list'][cls-1]: dice_class[cls-1]}, i)
+                
                 dice_val.append(dice_class)
-                train_loop.set_postfix(avg_dice = sum(dice_class)/len(dice_class))
+                val_loop.set_postfix(avg_dice = sum(dice_class)/len(dice_class))
 
         if cfg["is_dynamic_empty_cache"]:
             del img, mask, pred
@@ -153,10 +157,9 @@ def main():
         mean_dice_in_vallist = np.array(dice_val).sum(axis=0)/(cfg['nclass'] - 1)
         mean_dice_list = mean_dice_in_vallist.tolist()
         mean_dice = sum(mean_dice_list)/len(mean_dice_list)
-
+        logger.info('***** Evaluation ***** >>>> Class')
         for (cls_idx, dice) in enumerate(mean_dice_list):
-            logger.info('***** Evaluation ***** >>>> Class [{:} {:}] MeanDice: '
-                        '{:.4f} '.format(cls_idx+1, cfg['class_name_list'][cls_idx], dice))
+            logger.info(' [{:}] MeanDice: {:.4f} '.format(cfg['class_name_list'][cls_idx], dice))
         
         writer.add_scalar('eval/MeanDice', mean_dice, epoch)
         for i, dice in enumerate(mean_dice_list):
