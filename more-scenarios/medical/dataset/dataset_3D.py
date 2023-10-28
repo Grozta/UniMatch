@@ -37,9 +37,22 @@ class Dataset_3D(Dataset):
 
         self.color_jitter = ColorJitter()
         self.noise_and_blur_jitter = NoiseJitter()
+        self.sample_pool = self.ids
+
+
+    def reset_sample_pool(self, seed, rate_or_count):
+        '''
+        seed 是随机数种子
+        rate_or_count 是采样比例（小数）或者个数（整数）
+        '''
+        random.seed(seed)
+        if isinstance(rate_or_count, int):
+            self.sample_pool = random.sample(self.ids,rate_or_count)
+        else:
+            self.sample_pool = random.sample(self.ids,int(len(self.ids) * rate_or_count))
 
     def __getitem__(self, item):
-        id_name = self.ids[item]
+        id_name = self.sample_pool[item]
         sample = np.load(id_name)['data']
         img = sample[0]
         if len(sample)>1:
@@ -82,4 +95,4 @@ class Dataset_3D(Dataset):
         return img, img_s1, img_s2, cutmix_box1, cutmix_box2
 
     def __len__(self):
-        return len(self.ids)
+        return len(self.sample_pool)

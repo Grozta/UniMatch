@@ -6,11 +6,13 @@ num_workers: 4
 dataset_output_size: [64,128,128]
 data_window_level: [-500,500]
 
+per_epoch_resample_count: 200 # 每个epoch采样的数量
+
 # arguments for training
 is_dynamic_empty_cache: true
 is_amp_train: true
 use_tqdm: true
-epochs: 1000
+epochs: 100
 batch_size: 1
 lr: 0.01
 conf_thresh: 0.95

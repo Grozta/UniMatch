@@ -21,7 +21,7 @@ from util.tools import *
 
 parser = argparse.ArgumentParser(description='Revisiting Weak-to-Strong Consistency in Semi-Supervised Semantic Segmentation')
 parser.add_argument('--config', type=str,default="configs/flare22_unimatch.yaml")
-parser.add_argument('--save_path', type=str,default="exp/unimatch_unet/home_01")
+parser.add_argument('--save_path', type=str,default="exp/unimatch_unet/lab_02_128")
 parser.add_argument('--restart_train', required=False, default=False, action="store_true",)
 
 def main():
@@ -67,7 +67,7 @@ def main():
     valloader = DataLoader(valset, batch_size=1, 
                            pin_memory=True, num_workers=cfg['num_workers'], drop_last=False,shuffle=False)
 
-    total_iters = len(trainloader_u) * cfg['epochs']
+    total_iters = cfg['per_epoch_resample_count']  * cfg['epochs'] 
     previous_best = 0.0
     epoch = -1
 
@@ -101,13 +101,16 @@ def main():
         total_mask_ratio = AverageMeter()
         
         loader = zip(trainloader_l, trainloader_u, trainloader_u_mix)
+        trainloader_l.dataset.reset_sample_pool(epoch,cfg["per_epoch_resample_count"])
+        trainloader_u.dataset.reset_sample_pool(epoch,cfg["per_epoch_resample_count"])
+        trainloader_u_mix.dataset.reset_sample_pool(epoch,cfg["per_epoch_resample_count"])
         train_loop = tqdm(enumerate(loader), total =len(trainloader_u),leave= True)
         train_loop.set_description(f'Train[{epoch}/{cfg["epochs"]}]')
+
         with amp.autocast(enabled=cfg["is_amp_train"]):
             for i, ((img_x, mask_x),
                     (img_u_w, img_u_s1, img_u_s2, cutmix_box1, cutmix_box2),
                     (img_u_w_mix, img_u_s1_mix, img_u_s2_mix, _, _)) in train_loop:
-        
                 with torch.no_grad():
                     model.eval()
                     img_u_w_mix = img_u_w_mix.cuda()
