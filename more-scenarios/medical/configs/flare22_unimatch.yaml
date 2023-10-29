@@ -2,8 +2,8 @@
 dataset_info_path: dataset/dataset_info.json # for preprocessed data description
 
 # arguments for dataset
-num_workers: 4
-dataset_output_size: [64,128,128]
+num_workers: 8
+dataset_output_size: [64,144,144]
 data_window_level: [-500,500]
 
 per_epoch_resample_count: 200 # 每个epoch采样的数量
@@ -18,7 +18,7 @@ lr: 0.01
 conf_thresh: 0.95
 
 # train status
-pretrained_model_path: exp/supervised_unet/lab_02_128/best.pth
+pretrained_model_path: exp/supervised_unet/home_01/best.pth
 
 # net
 nclass: 14
