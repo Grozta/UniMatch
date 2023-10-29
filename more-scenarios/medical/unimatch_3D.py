@@ -17,6 +17,7 @@ from dataset.dataset_3D import Dataset_3D
 from model.unet_3D import UNet_3D
 from util.utils import AverageMeter, count_params, Logger, DiceLoss
 from util.tools import *
+import time
 
 
 parser = argparse.ArgumentParser(description='Revisiting Weak-to-Strong Consistency in Semi-Supervised Semantic Segmentation')
@@ -58,15 +59,6 @@ def main():
     trainset_l = Dataset_3D('train_l',cfg, nsample=len(trainset_u.ids))
     valset = Dataset_3D('val',cfg)
 
-    trainloader_l = DataLoader(trainset_l, batch_size=cfg['batch_size'],
-                               pin_memory=True, num_workers=cfg['num_workers'], drop_last=True,shuffle=False)
-    trainloader_u = DataLoader(trainset_u, batch_size=cfg['batch_size'],
-                               pin_memory=True, num_workers=cfg['num_workers'], drop_last=True,shuffle=False)
-    trainloader_u_mix = DataLoader(trainset_u, batch_size=cfg['batch_size'],
-                                   pin_memory=True, num_workers=cfg['num_workers'], drop_last=True,shuffle=True)
-    valloader = DataLoader(valset, batch_size=1, 
-                           pin_memory=True, num_workers=cfg['num_workers'], drop_last=False,shuffle=False)
-
     total_iters = cfg['per_epoch_resample_count']  * cfg['epochs'] 
     previous_best = 0.0
     epoch = -1
@@ -99,11 +91,21 @@ def main():
         total_loss_s = AverageMeter()
         total_loss_w_fp = AverageMeter()
         total_mask_ratio = AverageMeter()
+
+        trainset_l.reset_sample_pool(epoch,cfg["per_epoch_resample_count"])
+        trainset_u.reset_sample_pool(epoch,cfg["per_epoch_resample_count"])
+
+        trainloader_l = DataLoader(trainset_l, batch_size=cfg['batch_size'],
+                               pin_memory=True, num_workers=cfg['num_workers'], drop_last=True,shuffle=False)
+        trainloader_u = DataLoader(trainset_u, batch_size=cfg['batch_size'],
+                               pin_memory=True, num_workers=cfg['num_workers'], drop_last=True,shuffle=False)
+        trainloader_u_mix = DataLoader(trainset_u, batch_size=cfg['batch_size'],
+                                   pin_memory=True, num_workers=cfg['num_workers'], drop_last=True,shuffle=True)
+        valloader = DataLoader(valset, batch_size=1, 
+                           pin_memory=True, num_workers=cfg['num_workers'], drop_last=False,shuffle=False)
         
         loader = zip(trainloader_l, trainloader_u, trainloader_u_mix)
-        trainloader_l.dataset.reset_sample_pool(epoch,cfg["per_epoch_resample_count"])
-        trainloader_u.dataset.reset_sample_pool(epoch,cfg["per_epoch_resample_count"])
-        trainloader_u_mix.dataset.reset_sample_pool(epoch,cfg["per_epoch_resample_count"])
+        
         train_loop = tqdm(enumerate(loader), total =len(trainloader_u),leave= True)
         train_loop.set_description(f'Train[{epoch}/{cfg["epochs"]}]')
 
@@ -111,6 +113,8 @@ def main():
             for i, ((img_x, mask_x),
                     (img_u_w, img_u_s1, img_u_s2, cutmix_box1, cutmix_box2),
                     (img_u_w_mix, img_u_s1_mix, img_u_s2_mix, _, _)) in train_loop:
+                
+                iter_start_time = time.time()
                 with torch.no_grad():
                     model.eval()
                     img_u_w_mix = img_u_w_mix.cuda()
@@ -207,6 +211,8 @@ def main():
                                                 total_loss_w_fp.avg, total_mask_ratio.avg))
 
                 train_loop.set_postfix(loss = total_loss.avg) 
+                iter_end_time = time.time()
+                logger.info(f'[epoch:{epoch}|iter:{i}] use time: {iter_end_time-iter_start_time}')
 
             if cfg["is_dynamic_empty_cache"]:
                 torch.cuda.empty_cache()
