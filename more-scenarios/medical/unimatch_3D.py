@@ -222,7 +222,7 @@ def main():
             with torch.no_grad():
                 val_loop = tqdm(enumerate(valloader), total =len(valloader),leave= False)
                 val_loop.set_description(f'Val [{epoch}/{cfg["epochs"]}]')
-                for img, mask in val_loop:
+                for i, (img, mask) in val_loop:
                     dice_class = [0] * (cfg['nclass'] - 1)
                     img, mask = img.cuda(), mask.cuda()
 
